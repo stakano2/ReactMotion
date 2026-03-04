@@ -1222,7 +1222,7 @@ const HandTracker = (() => {
     });
     hands.setOptions({
       maxNumHands: 2,
-      modelComplexity: isMobile ? 0 : 1,
+      modelComplexity: 0,
       minDetectionConfidence: isMobile ? 0.5 : 0.5,
       minTrackingConfidence: isMobile ? 0.4 : 0.4,
     });
@@ -1250,8 +1250,8 @@ const HandTracker = (() => {
     const constraints = {
       video: {
         facingMode: 'user',
-        width: { ideal: isMobile ? 640 : 1920 },
-        height: { ideal: isMobile ? 480 : 1080 },
+        width: { ideal: isMobile ? 640 : 960 },
+        height: { ideal: isMobile ? 480 : 540 },
       },
       audio: false,
     };
@@ -2002,7 +2002,7 @@ function wireButtons() {
 
 const DwellNav = (() => {
   const DWELL_TIME = 3000;
-  const SMOOTH_FRAMES = 4;
+  const SMOOTH_FRAMES = 2;
   const MENU_STATES = ['HOME', 'SETTINGS', 'SCOREBOARD', 'COMPLETE'];
   const FADE_TIMEOUT = 800;
 
