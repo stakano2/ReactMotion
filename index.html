@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════
    CSS RESET & CUSTOM PROPERTIES
@@ -1092,16 +1091,22 @@ if (isMobile) {
 
 const HandTracker = (() => {
   let hands = null;
-  let camera = null;
   let latestResults = null;
   let cameraRunning = false;
   let onFrame = null;
   let initDone = false;
 
+  function setStatus(msg) {
+    const el = document.getElementById('positioning-status');
+    if (el) el.textContent = msg;
+    console.log('[HandTracker] ' + msg);
+  }
+
   async function init() {
     if (typeof window.Hands === 'undefined') {
-      throw new Error('MediaPipe Hands script not loaded');
+      throw new Error('MediaPipe Hands script not loaded — check network/CDN');
     }
+    setStatus('CREATING HAND MODEL...');
     hands = new window.Hands({
       locateFile: (file) =>
         `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
@@ -1109,46 +1114,69 @@ const HandTracker = (() => {
     hands.setOptions({
       maxNumHands: 2,
       modelComplexity: isMobile ? 0 : 1,
-      minDetectionConfidence: isMobile ? 0.55 : 0.5,
-      minTrackingConfidence: isMobile ? 0.45 : 0.4,
+      minDetectionConfidence: isMobile ? 0.5 : 0.5,
+      minTrackingConfidence: isMobile ? 0.4 : 0.4,
     });
     hands.onResults((r) => {
       latestResults = r;
       if (onFrame) onFrame(r);
     });
-    // Warm up the model with a blank frame
-    const offscreen = new OffscreenCanvas(1, 1);
-    try { await hands.send({ image: offscreen }); } catch (_) {}
+    setStatus('WARMING UP MODEL...');
+    // Warm up — OffscreenCanvas not available on all mobile browsers
+    try {
+      const c = document.createElement('canvas');
+      c.width = 2; c.height = 2;
+      await hands.send({ image: c });
+    } catch (_) {}
     initDone = true;
-    console.log('MediaPipe Hands ready' + (isMobile ? ' (mobile mode)' : ''));
+    setStatus('HAND MODEL READY');
   }
 
   async function startCamera() {
     if (cameraRunning) return;
     const video = document.getElementById('webcam-video');
-    const camWidth = isMobile ? 640 : 1920;
-    const camHeight = isMobile ? 480 : 1080;
-    camera = new window.Camera(video, {
-      onFrame: async () => {
-        if (hands) {
-          await hands.send({ image: video });
-        }
+    setStatus('REQUESTING CAMERA...');
+
+    // Manual getUserMedia — more reliable on mobile than Camera utility
+    const constraints = {
+      video: {
+        facingMode: 'user',
+        width: { ideal: isMobile ? 640 : 1920 },
+        height: { ideal: isMobile ? 480 : 1080 },
       },
-      width: camWidth,
-      height: camHeight,
-    });
-    await camera.start();
+      audio: false,
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
+    video.setAttribute('muted', '');
+    await video.play();
+
     Renderer.setVideoReady(true);
     cameraRunning = true;
-    console.log('Camera started');
+    setStatus('CAMERA STARTED — DETECTING HANDS...');
+
+    // Frame processing loop — send video frames to MediaPipe
+    let processing = false;
+    async function tick() {
+      if (!cameraRunning) return;
+      if (hands && video.readyState >= 2 && !processing) {
+        processing = true;
+        try {
+          await hands.send({ image: video });
+        } catch (e) {
+          console.warn('Hand detection frame error:', e);
+        }
+        processing = false;
+      }
+      requestAnimationFrame(tick);
+    }
+    tick();
   }
 
   function stopCamera() {
     cameraRunning = false;
-    if (camera) {
-      camera.stop();
-      camera = null;
-    }
     const video = document.getElementById('webcam-video');
     if (video.srcObject) {
       video.srcObject.getTracks().forEach(t => t.stop());
