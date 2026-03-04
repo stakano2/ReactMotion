@@ -705,6 +705,14 @@ input[type="text"]:focus {
         <option value="off">Off</option>
       </select>
     </div>
+    <div class="setting-row">
+      <span class="setting-label">Target Size</span>
+      <select id="setting-target-size">
+        <option value="large">Large (Easy)</option>
+        <option value="normal">Normal</option>
+        <option value="small" selected>Small (Hard)</option>
+      </select>
+    </div>
   </div>
   <div class="btn-group">
     <button class="btn btn-small" id="btn-settings-back">BACK</button>
@@ -836,6 +844,14 @@ const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/
 
 let BALL_RENDER_RADIUS = isMobile ? 28 : BALL_RADIUS;
 let BALL_HIT_RADIUS = isMobile ? 35 : BALL_RADIUS + BALL_HIT_GRACE;
+
+const TARGET_SIZE_MULTIPLIERS = { large: 1.8, normal: 1.35, small: 1.0 };
+
+function applyTargetSize(size) {
+  const m = TARGET_SIZE_MULTIPLIERS[size] || 1.0;
+  BALL_RENDER_RADIUS = (isMobile ? 28 : BALL_RADIUS) * m;
+  BALL_HIT_RADIUS = (isMobile ? 35 : BALL_RADIUS + BALL_HIT_GRACE) * m;
+}
 
 // Wave definitions — redRatio = ratio of red DECOY balls (touching = penalty)
 // Blue balls are the THREATS — must intercept before they cross center line
@@ -1001,6 +1017,7 @@ const Storage = (() => {
     volume: 70,
     showCursors: true,
     crtEffect: true,
+    targetSize: 'small',
   };
 
   function loadSettings() {
@@ -1268,8 +1285,8 @@ const HandTracker = (() => {
     hands.setOptions({
       maxNumHands: 2,
       modelComplexity: 0,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.4,
+      minDetectionConfidence: 0.3,
+      minTrackingConfidence: 0.3,
     });
     hands.onResults((r) => {
       latestResults = r;
@@ -1376,7 +1393,11 @@ const HandTracker = (() => {
     return raisedCount >= 1;
   }
 
-  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady };
+  function setMaxHands(n) {
+    if (hands) hands.setOptions({ maxNumHands: n });
+  }
+
+  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady, setMaxHands };
 })();
 
 
@@ -1707,16 +1728,19 @@ screens.SETTINGS = {
     document.getElementById('setting-volume-val').textContent = s.volume + '%';
     document.getElementById('setting-cursors').value = s.showCursors ? 'on' : 'off';
     document.getElementById('setting-crt').value = s.crtEffect ? 'on' : 'off';
+    document.getElementById('setting-target-size').value = s.targetSize || 'small';
   },
   exit() {
     const s = {
       volume: parseInt(document.getElementById('setting-volume').value),
       showCursors: document.getElementById('setting-cursors').value === 'on',
       crtEffect: document.getElementById('setting-crt').value === 'on',
+      targetSize: document.getElementById('setting-target-size').value,
     };
     Storage.saveSettings(s);
     AudioEngine.setVolume(s.volume / 100);
     document.getElementById('crt-overlay').style.display = s.crtEffect ? 'block' : 'none';
+    applyTargetSize(s.targetSize);
   },
 };
 
@@ -2359,16 +2383,19 @@ const DwellNav = (() => {
   // React to state changes
   GameState.on((to) => {
     if (MENU_STATES.includes(to)) {
+      HandTracker.setMaxHands(1);
       // Small delay to let screen transition finish
       setTimeout(() => activate(), 100);
     } else {
       deactivate();
+      HandTracker.setMaxHands(2);
     }
   });
 
   function init() {
     // Start active if already on a menu state
     if (isMenuState()) {
+      HandTracker.setMaxHands(1);
       setTimeout(() => activate(), 500);
     }
   }
@@ -2385,6 +2412,7 @@ async function bootstrap() {
   const settings = Storage.loadSettings();
   AudioEngine.setVolume(settings.volume / 100);
   document.getElementById('crt-overlay').style.display = settings.crtEffect ? 'block' : 'none';
+  applyTargetSize(settings.targetSize);
 
   wireButtons();
   backgroundRenderLoop();
