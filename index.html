@@ -1223,8 +1223,8 @@ const HandTracker = (() => {
     hands.setOptions({
       maxNumHands: 2,
       modelComplexity: 0,
-      minDetectionConfidence: isMobile ? 0.5 : 0.5,
-      minTrackingConfidence: isMobile ? 0.4 : 0.4,
+      minDetectionConfidence: 0.3,
+      minTrackingConfidence: 0.3,
     });
     hands.onResults((r) => {
       latestResults = r;
@@ -1336,7 +1336,11 @@ const HandTracker = (() => {
     return raisedCount >= 1;
   }
 
-  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady };
+  function setMaxHands(n) {
+    if (hands) hands.setOptions({ maxNumHands: n });
+  }
+
+  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady, setMaxHands };
 })();
 
 
@@ -2204,14 +2208,17 @@ const DwellNav = (() => {
 
   GameState.on((to) => {
     if (MENU_STATES.includes(to)) {
+      HandTracker.setMaxHands(1);
       setTimeout(() => activate(), 100);
     } else {
       deactivate();
+      HandTracker.setMaxHands(2);
     }
   });
 
   function init() {
     if (isMenuState()) {
+      HandTracker.setMaxHands(1);
       setTimeout(() => activate(), 500);
     }
   }
