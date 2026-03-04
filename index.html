@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════
    CSS RESET & CUSTOM PROPERTIES
@@ -679,7 +681,7 @@ input[type="text"]:focus {
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<script type="module">
+<script>
 
 // ═══════════════════════════════════════════════════════════════
 // SECTION 1: CONSTANTS & CONFIG
@@ -1073,70 +1075,62 @@ const Renderer = (() => {
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracker = (() => {
-  let handLandmarker = null;
+  let hands = null;
+  let camera = null;
   let latestResults = null;
   let cameraRunning = false;
   let onFrame = null;
-  let lastDetectTime = 0;
+  let initDone = false;
 
   async function init() {
-    const vision = await import(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'
-    );
-    const { HandLandmarker, FilesetResolver } = vision;
-
-    const fileset = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
-    );
-
-    handLandmarker = await HandLandmarker.createFromOptions(fileset, {
-      baseOptions: {
-        modelAssetPath:
-          'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
+    if (typeof window.Hands === 'undefined') {
+      throw new Error('MediaPipe Hands script not loaded');
+    }
+    hands = new window.Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
+    });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.4,
     });
-    console.log('HandLandmarker ready');
+    hands.onResults((r) => {
+      latestResults = r;
+      if (onFrame) onFrame(r);
+    });
+    // Warm up the model with a blank frame
+    const offscreen = new OffscreenCanvas(1, 1);
+    try { await hands.send({ image: offscreen }); } catch (_) {}
+    initDone = true;
+    console.log('MediaPipe Hands ready');
   }
 
   async function startCamera() {
     if (cameraRunning) return;
     const video = document.getElementById('webcam-video');
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1920, height: 1080, facingMode: 'user' },
+    camera = new window.Camera(video, {
+      onFrame: async () => {
+        if (hands) {
+          await hands.send({ image: video });
+        }
+      },
+      width: 1920,
+      height: 1080,
     });
-    video.srcObject = stream;
-    await video.play();
+    await camera.start();
     Renderer.setVideoReady(true);
     cameraRunning = true;
-
-    function tick() {
-      if (!cameraRunning) return;
-      if (handLandmarker && video.readyState >= 2) {
-        const now = performance.now();
-        // Throttle to avoid sending duplicate timestamps
-        if (now > lastDetectTime) {
-          try {
-            latestResults = handLandmarker.detectForVideo(video, now);
-          } catch (e) {
-            // skip frame on error
-          }
-          lastDetectTime = now;
-          if (onFrame) onFrame(latestResults);
-        }
-      }
-      requestAnimationFrame(tick);
-    }
-    tick();
+    console.log('Camera started');
   }
 
   function stopCamera() {
     cameraRunning = false;
+    if (camera) {
+      camera.stop();
+      camera = null;
+    }
     const video = document.getElementById('webcam-video');
     if (video.srcObject) {
       video.srcObject.getTracks().forEach(t => t.stop());
@@ -1146,17 +1140,16 @@ const HandTracker = (() => {
   }
 
   function getResults() { return latestResults; }
-
   function setOnFrame(fn) { onFrame = fn; }
+  function isReady() { return initDone; }
 
   function getFingerTips() {
-    if (!latestResults || !latestResults.landmarks || latestResults.landmarks.length === 0) return [];
+    if (!latestResults || !latestResults.multiHandLandmarks) return [];
     const tips = [];
-    for (let i = 0; i < latestResults.landmarks.length; i++) {
-      const lm = latestResults.landmarks[i];
-      const handedness = latestResults.handednesses[i];
-      // handednesses is array of categories; first entry has categoryName
-      const rawLabel = handedness[0]?.categoryName || 'Right';
+    for (let i = 0; i < latestResults.multiHandLandmarks.length; i++) {
+      const lm = latestResults.multiHandLandmarks[i];
+      const classification = latestResults.multiHandedness[i];
+      const rawLabel = classification.label || 'Right';
       // MediaPipe reports handedness as mirrored, so flip
       const label = rawLabel === 'Left' ? 'Right' : 'Left';
       const tip = lm[FINGER_TIP_INDEX];
@@ -1171,27 +1164,24 @@ const HandTracker = (() => {
   }
 
   function areHandsRaised() {
-    if (!latestResults || !latestResults.landmarks) return false;
-    const numHands = latestResults.landmarks.length;
+    if (!latestResults || !latestResults.multiHandLandmarks) return false;
+    const numHands = latestResults.multiHandLandmarks.length;
     if (numHands === 0) return false;
 
-    // Require at least one hand where fingertips are above the wrist
-    // and the wrist is in the upper 60% of the frame
     let raisedCount = 0;
-    for (const lm of latestResults.landmarks) {
+    for (const lm of latestResults.multiHandLandmarks) {
       const wrist = lm[0];
       const fingertips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
       const tipsAboveWrist = fingertips.filter(t => t.y < wrist.y - 0.03).length;
-      // At least 3 fingertips above wrist and wrist in upper 60%
-      if (tipsAboveWrist >= 3 && wrist.y < 0.6) {
+      // At least 3 fingertips above wrist and wrist in upper 70% of frame
+      if (tipsAboveWrist >= 3 && wrist.y < 0.7) {
         raisedCount++;
       }
     }
-    // Accept 1 raised hand (more forgiving) or 2
     return raisedCount >= 1;
   }
 
-  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame };
+  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady };
 })();
 
 
@@ -1476,6 +1466,17 @@ screens.POSITIONING = {
   async enter() {
     document.getElementById('positioning-status').textContent = 'STARTING CAMERA...';
     document.getElementById('positioning-status').classList.remove('ready');
+
+    if (!HandTracker.isReady()) {
+      document.getElementById('positioning-status').textContent = 'LOADING HAND TRACKING MODEL...';
+      try {
+        await HandTracker.init();
+      } catch (e) {
+        document.getElementById('positioning-status').textContent = 'HAND TRACKING FAILED: ' + e.message;
+        return;
+      }
+    }
+
     try {
       await HandTracker.startCamera();
     } catch (e) {
@@ -1493,7 +1494,7 @@ screens.POSITIONING = {
         return;
       }
       const r = HandTracker.getResults();
-      const numHands = r?.landmarks?.length || 0;
+      const numHands = r?.multiHandLandmarks?.length || 0;
       const raised = HandTracker.areHandsRaised();
 
       if (raised) {
@@ -1843,12 +1844,11 @@ async function bootstrap() {
   wireButtons();
   backgroundRenderLoop();
 
-  // Pre-load MediaPipe (don't block UI)
+  // Pre-load MediaPipe hand tracking model
   try {
     await HandTracker.init();
-    console.log('MediaPipe Hands loaded');
   } catch (e) {
-    console.error('Failed to load MediaPipe:', e);
+    console.warn('MediaPipe pre-load failed, will retry on PLAY:', e);
   }
 }
 
