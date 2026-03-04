@@ -713,8 +713,7 @@ const SCORING = {
 
 const TARGET_RADIUS = 45;
 const HIT_GRACE = 15;
-const TARGET_Y_MIN = 0.25;
-const TARGET_Y_MAX = 0.75;
+const TARGET_MIN_RADIUS = 28;
 const FINGER_TIP_INDEX = 8;
 const HAND_RAISE_Y = 0.4;
 
@@ -1189,82 +1188,94 @@ const HandTracker = (() => {
 // SECTION 7: TARGET SYSTEM
 // ═══════════════════════════════════════════════════════════════
 
+function dist(x1, y1, x2, y2) {
+  return Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
+}
+
 const TargetSystem = (() => {
   let activeTarget = null;
   let totalSpawned = 0;
   let totalHits = 0;
-  let lastZoneIndex = -1;
+  let lastX = 0.5;
+  let lastY = 0.5;
   let lastHand = null;
   let spawnTimer = null;
   let settings = {};
+
+  // Progressive phases define the playable area and difficulty scaling
+  // Phase 0: center zone, big targets
+  // Phase 1: wider spread, medium targets
+  // Phase 2: full screen, smaller targets, must move far
+  const PHASES = [
+    { minHits: 0,  xMin: 0.25, xMax: 0.75, yMin: 0.30, yMax: 0.70, radiusScale: 1.0,  minDist: 0.10 },
+    { minHits: 10, xMin: 0.12, xMax: 0.88, yMin: 0.20, yMax: 0.80, radiusScale: 0.85, minDist: 0.18 },
+    { minHits: 20, xMin: 0.06, xMax: 0.94, yMin: 0.12, yMax: 0.88, radiusScale: 0.65, minDist: 0.25 },
+  ];
 
   function init(s) {
     settings = s;
     activeTarget = null;
     totalSpawned = 0;
     totalHits = 0;
-    lastZoneIndex = -1;
+    lastX = 0.5;
+    lastY = 0.5;
     lastHand = null;
     clearTimeout(spawnTimer);
   }
 
-  function getAvailableZones() {
-    let maxTier = 0;
-    if (totalHits >= 10) maxTier = 1;
-    if (totalHits >= 20) maxTier = 2;
-    return ZONES.filter(z => z.tier <= maxTier);
-  }
-
-  function pickZone() {
-    const available = getAvailableZones();
-    let candidates = available.filter((_, i) => {
-      const globalIndex = ZONES.indexOf(available[i]);
-      return globalIndex !== lastZoneIndex;
-    });
-    if (candidates.length === 0) candidates = available;
-
-    // Try to alternate hands
-    if (lastHand) {
-      const oppositeHand = lastHand === 'Left' ? 'Right' : 'Left';
-      const preferred = candidates.filter(z => z.hand === oppositeHand || z.hand === 'Any');
-      // 80% chance to pick opposite hand side
-      if (preferred.length > 0 && Math.random() < 0.8) {
-        candidates = preferred;
-      }
+  function getPhase() {
+    let phase = PHASES[0];
+    for (const p of PHASES) {
+      if (totalHits >= p.minHits) phase = p;
     }
-
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    return phase;
   }
 
   function spawn() {
     if (totalSpawned >= settings.totalTargets) return null;
 
-    const zone = pickZone();
-    const globalIndex = ZONES.indexOf(zone);
-    lastZoneIndex = globalIndex;
-
-    // Determine required hand
-    let hand;
-    if (zone.hand === 'Any') {
-      hand = lastHand === 'Left' ? 'Right' : 'Left';
-    } else {
-      hand = zone.hand;
-    }
-    lastHand = hand;
-
-    const yRange = TARGET_Y_MAX - TARGET_Y_MIN;
-    const y = TARGET_Y_MIN + Math.random() * yRange;
-
+    const phase = getPhase();
     const diff = DIFFICULTY[settings.difficulty];
 
+    // Pick hand — alternate with 20% chance of same-hand repeat
+    let hand;
+    if (!lastHand || Math.random() < 0.8) {
+      hand = lastHand === 'Left' ? 'Right' : 'Left';
+    } else {
+      hand = lastHand;
+    }
+    // First target is random
+    if (!lastHand) hand = Math.random() < 0.5 ? 'Left' : 'Right';
+    lastHand = hand;
+
+    // Pick position: random within phase bounds, must be minDist from last
+    let x, y, attempts = 0;
+    do {
+      x = phase.xMin + Math.random() * (phase.xMax - phase.xMin);
+      y = phase.yMin + Math.random() * (phase.yMax - phase.yMin);
+      attempts++;
+    } while (attempts < 30 && dist(x, y, lastX, lastY) < phase.minDist);
+
+    // Bias X toward the correct hand side (left targets on left half, etc.)
+    if (hand === 'Left' && x > 0.6 && Math.random() < 0.7) {
+      x = phase.xMin + Math.random() * ((phase.xMax - phase.xMin) * 0.5);
+    } else if (hand === 'Right' && x < 0.4 && Math.random() < 0.7) {
+      x = phase.xMin + (phase.xMax - phase.xMin) * 0.5 + Math.random() * ((phase.xMax - phase.xMin) * 0.5);
+    }
+
+    lastX = x;
+    lastY = y;
+
+    const radius = Math.round(TARGET_RADIUS * phase.radiusScale);
+
     activeTarget = {
-      x: zone.x,
+      x: x,
       y: y,
       hand: hand,
-      radius: TARGET_RADIUS,
+      radius: Math.max(radius, TARGET_MIN_RADIUS),
       spawnTime: performance.now(),
       missTimeout: diff.missTimeout,
-      zone: zone.id,
+      phase: totalHits,
     };
 
     totalSpawned++;
