@@ -2094,7 +2094,6 @@ function wireButtons() {
 
   // Positioning
   document.getElementById('btn-positioning-back').addEventListener('click', () => {
-    HandTracker.stopCamera();
     GameState.transition('HOME');
   });
 
@@ -2121,7 +2120,6 @@ function wireButtons() {
   });
 
   document.getElementById('btn-gameover-home').addEventListener('click', () => {
-    HandTracker.stopCamera();
     GameState.forceSet('HOME');
     activateScreen('HOME');
     if (screens.HOME.enter) screens.HOME.enter();
