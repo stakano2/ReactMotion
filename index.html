@@ -1,0 +1,1828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReactForge - Reaction Trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CSS RESET & CUSTOM PROPERTIES
+   ═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-dark: #0a0a0f;
+  --bg-panel: #12121a;
+  --bg-card: #1a1a2e;
+  --cyan: #00f5ff;
+  --orange: #ff6b00;
+  --magenta: #ff00ff;
+  --green: #00ff88;
+  --red: #ff2244;
+  --yellow: #ffee00;
+  --text-primary: #e0e0ff;
+  --text-dim: #6a6a8a;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+  --glow-cyan: 0 0 10px rgba(0, 245, 255, 0.5), 0 0 30px rgba(0, 245, 255, 0.2);
+  --glow-orange: 0 0 10px rgba(255, 107, 0, 0.5), 0 0 30px rgba(255, 107, 0, 0.2);
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CANVAS & VIDEO
+   ═══════════════════════════════════════════════════════════════ */
+#webcam-video {
+  display: none;
+}
+
+#game-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CRT OVERLAY
+   ═══════════════════════════════════════════════════════════════ */
+#crt-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1000;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCREEN SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+.screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.screen.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════ */
+.title-main {
+  font-family: var(--font-display);
+  font-size: 6rem;
+  letter-spacing: 0.15em;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+  line-height: 1;
+}
+
+.title-sub {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--orange);
+  text-shadow: var(--glow-orange);
+  letter-spacing: 0.3em;
+  margin-top: 0.5rem;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  letter-spacing: 0.1em;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+  margin-bottom: 1.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════════════════════ */
+.btn {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  letter-spacing: 0.15em;
+  padding: 0.6em 2em;
+  border: 2px solid var(--cyan);
+  background: transparent;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn:hover {
+  background: rgba(0, 245, 255, 0.1);
+  box-shadow: var(--glow-cyan);
+  transform: scale(1.03);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-orange {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+
+.btn-orange:hover {
+  background: rgba(255, 107, 0, 0.1);
+  box-shadow: var(--glow-orange);
+}
+
+.btn-small {
+  font-size: 1.2rem;
+  padding: 0.4em 1.2em;
+}
+
+.btn-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARDS & PANELS
+   ═══════════════════════════════════════════════════════════════ */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid rgba(0, 245, 255, 0.15);
+  padding: 2rem;
+  max-width: 600px;
+  width: 90%;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid rgba(0, 245, 255, 0.1);
+  padding: 1rem 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FORM CONTROLS
+   ═══════════════════════════════════════════════════════════════ */
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid rgba(0, 245, 255, 0.08);
+}
+
+.setting-label {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.setting-value {
+  color: var(--cyan);
+  font-size: 0.9rem;
+  min-width: 60px;
+  text-align: right;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 160px;
+  height: 4px;
+  background: var(--bg-card);
+  outline: none;
+  border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--cyan);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--glow-cyan);
+}
+
+select {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 0.3em 0.8em;
+  background: var(--bg-card);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  cursor: pointer;
+  outline: none;
+}
+
+select:focus {
+  border-color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+input[type="text"] {
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  padding: 0.5em 1em;
+  background: var(--bg-card);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  outline: none;
+  text-align: center;
+  width: 200px;
+}
+
+input[type="text"]:focus {
+  border-color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HUD (Heads-Up Display) - PLAYING screen
+   ═══════════════════════════════════════════════════════════════ */
+#hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 50;
+  display: none;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  pointer-events: none;
+}
+
+#hud.visible {
+  display: flex;
+}
+
+.hud-item {
+  text-align: center;
+}
+
+.hud-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+  line-height: 1;
+}
+
+.hud-value.combo {
+  color: var(--orange);
+  text-shadow: var(--glow-orange);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCOREBOARD TABLE
+   ═══════════════════════════════════════════════════════════════ */
+.scoreboard-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scoreboard-table th {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--orange);
+  letter-spacing: 0.1em;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255, 107, 0, 0.3);
+  text-align: left;
+}
+
+.scoreboard-table td {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(0, 245, 255, 0.05);
+}
+
+.scoreboard-table tr.highlight {
+  background: rgba(0, 245, 255, 0.08);
+}
+
+.scoreboard-table tr.highlight td {
+  color: var(--cyan);
+}
+
+.scoreboard-rank {
+  color: var(--orange);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.scoreboard-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 2rem;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   POSITIONING SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+.positioning-hint {
+  font-size: 1.4rem;
+  color: var(--text-primary);
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.positioning-status {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  margin-top: 1rem;
+  transition: color 0.3s ease;
+}
+
+.positioning-status.ready {
+  color: var(--green);
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUNTDOWN
+   ═══════════════════════════════════════════════════════════════ */
+#countdown-display {
+  font-family: var(--font-display);
+  font-size: 12rem;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+  opacity: 0;
+  transform: scale(2);
+  transition: all 0.3s ease;
+}
+
+#countdown-display.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+#countdown-display.go {
+  color: var(--green);
+  text-shadow: 0 0 30px rgba(0, 255, 136, 0.5), 0 0 60px rgba(0, 255, 136, 0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPLETE SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin: 1.5rem 0;
+}
+
+.stat-box {
+  background: var(--bg-card);
+  border: 1px solid rgba(0, 245, 255, 0.1);
+  padding: 0.8rem;
+  text-align: center;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.final-score {
+  font-family: var(--font-display);
+  font-size: 5rem;
+  color: var(--orange);
+  text-shadow: var(--glow-orange);
+  line-height: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes hit-flash {
+  0% { background: rgba(0, 255, 136, 0.3); }
+  100% { background: transparent; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  .title-main { font-size: 3.5rem; }
+  .section-title { font-size: 2rem; }
+  .btn { font-size: 1.3rem; padding: 0.5em 1.5em; }
+  .btn-group { flex-direction: column; gap: 0.8rem; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .hud-value { font-size: 1.8rem; }
+  #countdown-display { font-size: 8rem; }
+  .final-score { font-size: 3.5rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hidden video element for MediaPipe -->
+<video id="webcam-video" autoplay playsinline></video>
+
+<!-- Main game canvas -->
+<canvas id="game-canvas"></canvas>
+
+<!-- CRT scanline overlay -->
+<div id="crt-overlay"></div>
+
+<!-- HUD (visible during gameplay) -->
+<div id="hud">
+  <div class="hud-item">
+    <div class="hud-label">Score</div>
+    <div class="hud-value" id="hud-score">0</div>
+  </div>
+  <div class="hud-item">
+    <div class="hud-label">Combo</div>
+    <div class="hud-value combo" id="hud-combo">x1.0</div>
+  </div>
+  <div class="hud-item">
+    <div class="hud-label">Hits</div>
+    <div class="hud-value" id="hud-hits">0 / 0</div>
+  </div>
+  <div class="hud-item">
+    <div class="hud-label">Time</div>
+    <div class="hud-value" id="hud-time">0:00</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: HOME
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-home" class="screen active">
+  <div class="title-main">REACTFORGE</div>
+  <div class="title-sub">REACTION TRAINER</div>
+  <div class="btn-group" style="flex-direction: column; margin-top: 3rem;">
+    <button class="btn" id="btn-play">PLAY</button>
+    <button class="btn btn-small" id="btn-settings">SETTINGS</button>
+    <button class="btn btn-small btn-orange" id="btn-scoreboard">SCOREBOARD</button>
+  </div>
+  <div style="margin-top: 2rem; color: var(--text-dim); font-size: 0.75rem;" class="animate-pulse">
+    WEBCAM REQUIRED
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: SETTINGS
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-settings" class="screen">
+  <div class="section-title">SETTINGS</div>
+  <div class="panel">
+    <div class="setting-row">
+      <span class="setting-label">Difficulty</span>
+      <select id="setting-difficulty">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Total Targets</span>
+      <div style="display:flex;align-items:center;gap:0.8rem;">
+        <input type="range" id="setting-targets" min="10" max="50" step="5" value="30">
+        <span class="setting-value" id="setting-targets-val">30</span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Sound Volume</span>
+      <div style="display:flex;align-items:center;gap:0.8rem;">
+        <input type="range" id="setting-volume" min="0" max="100" step="5" value="70">
+        <span class="setting-value" id="setting-volume-val">70%</span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Show Hand Cursors</span>
+      <select id="setting-cursors">
+        <option value="on" selected>On</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">CRT Effect</span>
+      <select id="setting-crt">
+        <option value="on" selected>On</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-small" id="btn-settings-back">BACK</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: SCOREBOARD
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-scoreboard" class="screen">
+  <div class="section-title">SCOREBOARD</div>
+  <div class="panel" style="max-height: 60vh; overflow-y: auto;">
+    <table class="scoreboard-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Score</th>
+          <th>Accuracy</th>
+          <th>Difficulty</th>
+        </tr>
+      </thead>
+      <tbody id="scoreboard-body">
+      </tbody>
+    </table>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-small" id="btn-scoreboard-back">BACK</button>
+    <button class="btn btn-small btn-orange" id="btn-scoreboard-clear">CLEAR</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: POSITIONING
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-positioning" class="screen">
+  <div class="section-title">GET READY</div>
+  <div class="positioning-hint">
+    Step back so your hands are visible.<br>
+    Raise both hands to begin.
+  </div>
+  <div class="positioning-status" id="positioning-status">WAITING FOR HANDS...</div>
+  <div class="btn-group">
+    <button class="btn btn-small" id="btn-positioning-back">CANCEL</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: COUNTDOWN
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-countdown" class="screen">
+  <div id="countdown-display">3</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: PLAYING (transparent - canvas shows through)
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-playing" class="screen">
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN: COMPLETE
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="screen-complete" class="screen">
+  <div class="section-title">ROUND COMPLETE</div>
+  <div class="final-score" id="final-score">0</div>
+  <div style="color: var(--text-dim); font-size: 0.8rem; letter-spacing: 0.2em; margin-top: 0.3rem;">POINTS</div>
+  <div class="stats-grid" style="max-width: 400px; width: 90%;">
+    <div class="stat-box">
+      <div class="stat-label">Accuracy</div>
+      <div class="stat-value" id="stat-accuracy">0%</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Avg Reaction</div>
+      <div class="stat-value" id="stat-reaction">0ms</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Best Combo</div>
+      <div class="stat-value" id="stat-combo">x1.0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Wrong Hands</div>
+      <div class="stat-value" id="stat-wrong">0</div>
+    </div>
+  </div>
+  <div style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem;">
+    <span style="color: var(--text-dim); font-size: 0.8rem;">NAME:</span>
+    <input type="text" id="player-name" maxlength="12" placeholder="PLAYER" value="PLAYER">
+  </div>
+  <div class="btn-group">
+    <button class="btn" id="btn-save-score">SAVE SCORE</button>
+    <button class="btn btn-small btn-orange" id="btn-play-again">PLAY AGAIN</button>
+    <button class="btn btn-small" id="btn-complete-home">HOME</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<script type="module">
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 1: CONSTANTS & CONFIG
+// ═══════════════════════════════════════════════════════════════
+
+const ZONES = [
+  { id: 'left-far',  x: 0.10, label: 'L-Far',  hand: 'Left',  tier: 2 },
+  { id: 'left-mid',  x: 0.28, label: 'L-Mid',  hand: 'Left',  tier: 1 },
+  { id: 'center',    x: 0.50, label: 'Center', hand: 'Any',   tier: 0 },
+  { id: 'right-mid', x: 0.72, label: 'R-Mid',  hand: 'Right', tier: 1 },
+  { id: 'right-far', x: 0.90, label: 'R-Far',  hand: 'Right', tier: 2 },
+];
+
+const DIFFICULTY = {
+  easy:   { spawnDelay: 2200, shrinkRate: 0, missTimeout: 3500, label: 'Easy' },
+  normal: { spawnDelay: 1600, shrinkRate: 0.5, missTimeout: 2800, label: 'Normal' },
+  hard:   { spawnDelay: 1100, shrinkRate: 1.0, missTimeout: 2000, label: 'Hard' },
+};
+
+const SCORING = {
+  baseHit: 100,
+  maxReactionBonus: 150,
+  reactionBonusThreshold: 400,
+  maxMovementBonus: 100,
+  wrongHandPenalty: -50,
+  comboThresholds: [3, 6, 9],
+  comboMultipliers: [1.0, 1.5, 2.0, 2.5],
+};
+
+const TARGET_RADIUS = 45;
+const HIT_GRACE = 15;
+const TARGET_Y_MIN = 0.25;
+const TARGET_Y_MAX = 0.75;
+const FINGER_TIP_INDEX = 8;
+const HAND_RAISE_Y = 0.4;
+
+const STATES = ['HOME', 'SETTINGS', 'SCOREBOARD', 'POSITIONING', 'COUNTDOWN', 'PLAYING', 'COMPLETE'];
+
+const VALID_TRANSITIONS = {
+  HOME: ['POSITIONING', 'SETTINGS', 'SCOREBOARD'],
+  SETTINGS: ['HOME'],
+  SCOREBOARD: ['HOME'],
+  POSITIONING: ['COUNTDOWN', 'HOME'],
+  COUNTDOWN: ['PLAYING'],
+  PLAYING: ['COMPLETE'],
+  COMPLETE: ['HOME', 'POSITIONING'],
+};
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 2: AUDIO ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+const AudioEngine = (() => {
+  let ctx = null;
+  let volume = 0.7;
+
+  function ensure() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function setVolume(v) { volume = v; }
+
+  function play(fn) {
+    const c = ensure();
+    const gain = c.createGain();
+    gain.gain.value = volume;
+    gain.connect(c.destination);
+    fn(c, gain);
+  }
+
+  function beep(freq, duration) {
+    play((c, gain) => {
+      const osc = c.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(volume * 0.3, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration);
+      osc.connect(gain);
+      osc.start(c.currentTime);
+      osc.stop(c.currentTime + duration);
+    });
+  }
+
+  function countdownTick() { beep(440, 0.15); }
+  function countdownGo() { beep(880, 0.3); }
+
+  function hit() {
+    play((c, gain) => {
+      const osc = c.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 660;
+      osc.frequency.exponentialRampToValueAtTime(1200, c.currentTime + 0.08);
+      gain.gain.setValueAtTime(volume * 0.4, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15);
+      osc.connect(gain);
+      osc.start(c.currentTime);
+      osc.stop(c.currentTime + 0.15);
+    });
+  }
+
+  function miss() {
+    play((c, gain) => {
+      const osc = c.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 200;
+      osc.frequency.exponentialRampToValueAtTime(80, c.currentTime + 0.3);
+      gain.gain.setValueAtTime(volume * 0.3, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.3);
+      osc.connect(gain);
+      osc.start(c.currentTime);
+      osc.stop(c.currentTime + 0.3);
+    });
+  }
+
+  function wrongHand() {
+    play((c, gain) => {
+      const osc = c.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 150;
+      gain.gain.setValueAtTime(volume * 0.25, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.2);
+      osc.connect(gain);
+      osc.start(c.currentTime);
+      osc.stop(c.currentTime + 0.2);
+    });
+  }
+
+  function complete() {
+    play((c, gain) => {
+      const notes = [523, 659, 784, 1047];
+      notes.forEach((freq, i) => {
+        const osc = c.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, c.currentTime + i * 0.15);
+        g.gain.linearRampToValueAtTime(volume * 0.3, c.currentTime + i * 0.15 + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + i * 0.15 + 0.4);
+        osc.connect(g);
+        g.connect(gain);
+        osc.start(c.currentTime + i * 0.15);
+        osc.stop(c.currentTime + i * 0.15 + 0.4);
+      });
+    });
+  }
+
+  function spawn() {
+    play((c, gain) => {
+      const osc = c.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 380;
+      osc.frequency.exponentialRampToValueAtTime(520, c.currentTime + 0.1);
+      gain.gain.setValueAtTime(volume * 0.2, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.12);
+      osc.connect(gain);
+      osc.start(c.currentTime);
+      osc.stop(c.currentTime + 0.12);
+    });
+  }
+
+  return { setVolume, countdownTick, countdownGo, hit, miss, wrongHand, complete, spawn, ensure };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3: STORAGE
+// ═══════════════════════════════════════════════════════════════
+
+const Storage = (() => {
+  const SETTINGS_KEY = 'reactforge_settings';
+  const SCORES_KEY = 'reactforge_scores';
+
+  const defaults = {
+    difficulty: 'normal',
+    totalTargets: 30,
+    volume: 70,
+    showCursors: true,
+    crtEffect: true,
+  };
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      return raw ? { ...defaults, ...JSON.parse(raw) } : { ...defaults };
+    } catch { return { ...defaults }; }
+  }
+
+  function saveSettings(s) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+
+  function loadScores() {
+    try {
+      const raw = localStorage.getItem(SCORES_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }
+
+  function saveScore(entry) {
+    const scores = loadScores();
+    entry.id = Date.now();
+    scores.push(entry);
+    scores.sort((a, b) => b.score - a.score);
+    const top10 = scores.slice(0, 10);
+    localStorage.setItem(SCORES_KEY, JSON.stringify(top10));
+    return top10;
+  }
+
+  function clearScores() {
+    localStorage.removeItem(SCORES_KEY);
+  }
+
+  return { loadSettings, saveSettings, loadScores, saveScore, clearScores };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 4: GAME STATE
+// ═══════════════════════════════════════════════════════════════
+
+const GameState = (() => {
+  let current = 'HOME';
+  const listeners = [];
+
+  function get() { return current; }
+
+  function transition(to) {
+    if (!VALID_TRANSITIONS[current]?.includes(to)) {
+      console.warn(`Invalid transition: ${current} → ${to}`);
+      return false;
+    }
+    const from = current;
+    current = to;
+    listeners.forEach(fn => fn(to, from));
+    return true;
+  }
+
+  function forceSet(state) {
+    const from = current;
+    current = state;
+    listeners.forEach(fn => fn(state, from));
+  }
+
+  function on(fn) { listeners.push(fn); }
+
+  return { get, transition, forceSet, on };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 5: RENDERER
+// ═══════════════════════════════════════════════════════════════
+
+const Renderer = (() => {
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+  let width = 0, height = 0;
+  let videoReady = false;
+  const video = document.getElementById('webcam-video');
+
+  function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  function setVideoReady(v) { videoReady = v; }
+
+  function clear() {
+    ctx.clearRect(0, 0, width, height);
+  }
+
+  function drawWebcam() {
+    if (!videoReady || !video.videoWidth) return;
+    ctx.save();
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+    ctx.globalAlpha = 0.35;
+    ctx.drawImage(video, 0, 0, width, height);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawTarget(target) {
+    const x = target.x * width;
+    const y = target.y * height;
+    const r = target.radius;
+    const age = (performance.now() - target.spawnTime) / 1000;
+    const pulse = 1 + Math.sin(age * 4) * 0.08;
+    const drawR = r * pulse;
+
+    const color = target.hand === 'Left' ? '#00f5ff' : '#ff6b00';
+    const colorFaded = target.hand === 'Left' ? 'rgba(0,245,255,' : 'rgba(255,107,0,';
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(x, y, drawR + 15, 0, Math.PI * 2);
+    ctx.fillStyle = colorFaded + '0.08)';
+    ctx.fill();
+
+    // Ring
+    ctx.beginPath();
+    ctx.arc(x, y, drawR, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 20;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Inner fill
+    ctx.beginPath();
+    ctx.arc(x, y, drawR - 6, 0, Math.PI * 2);
+    ctx.fillStyle = colorFaded + '0.15)';
+    ctx.fill();
+
+    // Timeout ring (shrinking arc)
+    if (target.missTimeout > 0) {
+      const elapsed = performance.now() - target.spawnTime;
+      const pct = Math.max(0, 1 - elapsed / target.missTimeout);
+      ctx.beginPath();
+      ctx.arc(x, y, drawR + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+      ctx.strokeStyle = colorFaded + '0.4)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Hand label
+    ctx.font = '14px "Share Tech Mono"';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(target.hand === 'Left' ? 'L' : 'R', x, y + 5);
+  }
+
+  function drawCursor(handedness, x, y) {
+    const px = x * width;
+    const py = y * height;
+    const color = handedness === 'Left' ? '#00f5ff' : '#ff6b00';
+
+    ctx.beginPath();
+    ctx.arc(px, py, 12, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 15;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+
+  function drawHitEffect(x, y, color) {
+    const px = x * width;
+    const py = y * height;
+
+    ctx.beginPath();
+    ctx.arc(px, py, 60, 0, Math.PI * 2);
+    ctx.fillStyle = color === 'cyan' ? 'rgba(0,245,255,0.2)' : 'rgba(255,107,0,0.2)';
+    ctx.fill();
+  }
+
+  function drawPointsText(x, y, text, color) {
+    const px = x * width;
+    const py = y * height;
+    ctx.font = '28px "Bebas Neue"';
+    ctx.fillStyle = color === 'good' ? '#00ff88' : '#ff2244';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 10;
+    ctx.fillText(text, px, py - 50);
+    ctx.shadowBlur = 0;
+  }
+
+  function getSize() { return { width, height }; }
+
+  resize();
+  window.addEventListener('resize', resize);
+
+  return { canvas, ctx, clear, drawWebcam, drawTarget, drawCursor, drawHitEffect, drawPointsText, getSize, setVideoReady, resize };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 6: HAND TRACKER
+// ═══════════════════════════════════════════════════════════════
+
+const HandTracker = (() => {
+  let hands = null;
+  let results = null;
+  let cameraRunning = false;
+  let onFrame = null;
+
+  async function init() {
+    const { Hands } = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js'
+    );
+
+    hands = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5,
+    });
+
+    hands.onResults((r) => {
+      results = r;
+      if (onFrame) onFrame(r);
+    });
+  }
+
+  async function startCamera() {
+    if (cameraRunning) return;
+    const video = document.getElementById('webcam-video');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, facingMode: 'user' },
+    });
+    video.srcObject = stream;
+    await video.play();
+    Renderer.setVideoReady(true);
+    cameraRunning = true;
+
+    async function tick() {
+      if (!cameraRunning) return;
+      if (hands && video.readyState >= 2) {
+        await hands.send({ image: video });
+      }
+      requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  function stopCamera() {
+    cameraRunning = false;
+    const video = document.getElementById('webcam-video');
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }
+    Renderer.setVideoReady(false);
+  }
+
+  function getResults() { return results; }
+
+  function setOnFrame(fn) { onFrame = fn; }
+
+  function getFingerTips() {
+    if (!results || !results.multiHandLandmarks) return [];
+    const tips = [];
+    for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+      const lm = results.multiHandLandmarks[i];
+      const classification = results.multiHandedness[i];
+      // MediaPipe reports handedness as if looking at a mirror, so flip it
+      const label = classification.label === 'Left' ? 'Right' : 'Left';
+      const tip = lm[FINGER_TIP_INDEX];
+      tips.push({
+        handedness: label,
+        x: 1 - tip.x, // Mirror
+        y: tip.y,
+        rawLandmarks: lm,
+      });
+    }
+    return tips;
+  }
+
+  function areHandsRaised() {
+    if (!results || !results.multiHandLandmarks) return false;
+    if (results.multiHandLandmarks.length < 2) return false;
+    return results.multiHandLandmarks.every(lm => {
+      const wrist = lm[0];
+      const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
+      return tips.some(t => t.y < wrist.y - 0.05) && wrist.y < HAND_RAISE_Y;
+    });
+  }
+
+  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 7: TARGET SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+const TargetSystem = (() => {
+  let activeTarget = null;
+  let totalSpawned = 0;
+  let totalHits = 0;
+  let lastZoneIndex = -1;
+  let lastHand = null;
+  let spawnTimer = null;
+  let settings = {};
+
+  function init(s) {
+    settings = s;
+    activeTarget = null;
+    totalSpawned = 0;
+    totalHits = 0;
+    lastZoneIndex = -1;
+    lastHand = null;
+    clearTimeout(spawnTimer);
+  }
+
+  function getAvailableZones() {
+    let maxTier = 0;
+    if (totalHits >= 10) maxTier = 1;
+    if (totalHits >= 20) maxTier = 2;
+    return ZONES.filter(z => z.tier <= maxTier);
+  }
+
+  function pickZone() {
+    const available = getAvailableZones();
+    let candidates = available.filter((_, i) => {
+      const globalIndex = ZONES.indexOf(available[i]);
+      return globalIndex !== lastZoneIndex;
+    });
+    if (candidates.length === 0) candidates = available;
+
+    // Try to alternate hands
+    if (lastHand) {
+      const oppositeHand = lastHand === 'Left' ? 'Right' : 'Left';
+      const preferred = candidates.filter(z => z.hand === oppositeHand || z.hand === 'Any');
+      // 80% chance to pick opposite hand side
+      if (preferred.length > 0 && Math.random() < 0.8) {
+        candidates = preferred;
+      }
+    }
+
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function spawn() {
+    if (totalSpawned >= settings.totalTargets) return null;
+
+    const zone = pickZone();
+    const globalIndex = ZONES.indexOf(zone);
+    lastZoneIndex = globalIndex;
+
+    // Determine required hand
+    let hand;
+    if (zone.hand === 'Any') {
+      hand = lastHand === 'Left' ? 'Right' : 'Left';
+    } else {
+      hand = zone.hand;
+    }
+    lastHand = hand;
+
+    const yRange = TARGET_Y_MAX - TARGET_Y_MIN;
+    const y = TARGET_Y_MIN + Math.random() * yRange;
+
+    const diff = DIFFICULTY[settings.difficulty];
+
+    activeTarget = {
+      x: zone.x,
+      y: y,
+      hand: hand,
+      radius: TARGET_RADIUS,
+      spawnTime: performance.now(),
+      missTimeout: diff.missTimeout,
+      zone: zone.id,
+    };
+
+    totalSpawned++;
+    AudioEngine.spawn();
+    return activeTarget;
+  }
+
+  function getActive() { return activeTarget; }
+  function clearActive() { activeTarget = null; }
+  function getSpawned() { return totalSpawned; }
+  function getHits() { return totalHits; }
+  function addHit() { totalHits++; }
+  function getTotalTargets() { return settings.totalTargets; }
+  function isFinished() { return totalSpawned >= settings.totalTargets && !activeTarget; }
+
+  return { init, spawn, getActive, clearActive, getSpawned, getHits, addHit, getTotalTargets, isFinished };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 8: SCORING ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+const ScoringEngine = (() => {
+  let score = 0;
+  let combo = 0;
+  let maxCombo = 0;
+  let wrongHands = 0;
+  let reactionTimes = [];
+  let lastTargetPos = null;
+
+  function init() {
+    score = 0;
+    combo = 0;
+    maxCombo = 0;
+    wrongHands = 0;
+    reactionTimes = [];
+    lastTargetPos = null;
+  }
+
+  function getMultiplier() {
+    for (let i = SCORING.comboThresholds.length - 1; i >= 0; i--) {
+      if (combo >= SCORING.comboThresholds[i]) return SCORING.comboMultipliers[i + 1];
+    }
+    return SCORING.comboMultipliers[0];
+  }
+
+  function processHit(target, reactionMs) {
+    reactionTimes.push(reactionMs);
+
+    // Reaction bonus
+    let reactionBonus = 0;
+    if (reactionMs < SCORING.reactionBonusThreshold) {
+      const pct = 1 - (reactionMs / SCORING.reactionBonusThreshold);
+      reactionBonus = Math.round(pct * SCORING.maxReactionBonus);
+    }
+
+    // Movement bonus (distance from last target)
+    let movementBonus = 0;
+    if (lastTargetPos) {
+      const dx = target.x - lastTargetPos.x;
+      const dy = target.y - lastTargetPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      movementBonus = Math.round(Math.min(dist * 2, 1) * SCORING.maxMovementBonus);
+    }
+
+    combo++;
+    if (combo > maxCombo) maxCombo = combo;
+    const multiplier = getMultiplier();
+
+    const points = Math.round((SCORING.baseHit + reactionBonus + movementBonus) * multiplier);
+    score += points;
+
+    lastTargetPos = { x: target.x, y: target.y };
+
+    return { points, reactionBonus, movementBonus, multiplier, combo };
+  }
+
+  function processMiss() {
+    combo = 0;
+    lastTargetPos = null;
+    return { penalty: 0 };
+  }
+
+  function processWrongHand(target) {
+    wrongHands++;
+    combo = 0;
+    score += SCORING.wrongHandPenalty;
+    if (score < 0) score = 0;
+    return { penalty: SCORING.wrongHandPenalty };
+  }
+
+  function getScore() { return score; }
+  function getCombo() { return combo; }
+  function getMaxCombo() { return maxCombo; }
+  function getMultiplierValue() { return getMultiplier(); }
+  function getWrongHands() { return wrongHands; }
+
+  function getAvgReaction() {
+    if (reactionTimes.length === 0) return 0;
+    return Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length);
+  }
+
+  function getStats() {
+    return {
+      score,
+      maxCombo,
+      wrongHands,
+      avgReaction: getAvgReaction(),
+      totalReactions: reactionTimes.length,
+    };
+  }
+
+  return { init, processHit, processMiss, processWrongHand, getScore, getCombo, getMaxCombo, getMultiplierValue, getWrongHands, getAvgReaction, getStats };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 9: SCREEN CONTROLLERS
+// ═══════════════════════════════════════════════════════════════
+
+const screens = {};
+
+function activateScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(`screen-${id.toLowerCase()}`);
+  if (el) el.classList.add('active');
+}
+
+GameState.on((to, from) => {
+  activateScreen(to);
+  if (screens[from]?.exit) screens[from].exit();
+  if (screens[to]?.enter) screens[to].enter();
+});
+
+// -- HOME --
+screens.HOME = {
+  enter() {
+    const hud = document.getElementById('hud');
+    hud.classList.remove('visible');
+  },
+};
+
+// -- SETTINGS --
+screens.SETTINGS = {
+  enter() {
+    const s = Storage.loadSettings();
+    document.getElementById('setting-difficulty').value = s.difficulty;
+    document.getElementById('setting-targets').value = s.totalTargets;
+    document.getElementById('setting-targets-val').textContent = s.totalTargets;
+    document.getElementById('setting-volume').value = s.volume;
+    document.getElementById('setting-volume-val').textContent = s.volume + '%';
+    document.getElementById('setting-cursors').value = s.showCursors ? 'on' : 'off';
+    document.getElementById('setting-crt').value = s.crtEffect ? 'on' : 'off';
+  },
+  exit() {
+    const s = {
+      difficulty: document.getElementById('setting-difficulty').value,
+      totalTargets: parseInt(document.getElementById('setting-targets').value),
+      volume: parseInt(document.getElementById('setting-volume').value),
+      showCursors: document.getElementById('setting-cursors').value === 'on',
+      crtEffect: document.getElementById('setting-crt').value === 'on',
+    };
+    Storage.saveSettings(s);
+    AudioEngine.setVolume(s.volume / 100);
+    document.getElementById('crt-overlay').style.display = s.crtEffect ? 'block' : 'none';
+  },
+};
+
+// -- SCOREBOARD --
+screens.SCOREBOARD = {
+  enter() {
+    renderScoreboard();
+  },
+};
+
+function renderScoreboard(highlightId) {
+  const scores = Storage.loadScores();
+  const body = document.getElementById('scoreboard-body');
+  if (scores.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="scoreboard-empty">No scores yet. Play a round!</td></tr>';
+    return;
+  }
+  body.innerHTML = scores.map((s, i) => `
+    <tr class="${s.id === highlightId ? 'highlight' : ''}">
+      <td class="scoreboard-rank">${i + 1}</td>
+      <td>${s.name || 'PLAYER'}</td>
+      <td style="color:var(--cyan)">${s.score.toLocaleString()}</td>
+      <td>${s.accuracy}%</td>
+      <td style="color:var(--text-dim)">${s.difficulty}</td>
+    </tr>
+  `).join('');
+}
+
+// -- POSITIONING --
+let positioningInterval = null;
+
+screens.POSITIONING = {
+  async enter() {
+    document.getElementById('positioning-status').textContent = 'STARTING CAMERA...';
+    document.getElementById('positioning-status').classList.remove('ready');
+    try {
+      await HandTracker.startCamera();
+    } catch (e) {
+      document.getElementById('positioning-status').textContent = 'CAMERA ERROR: ' + e.message;
+      return;
+    }
+    document.getElementById('positioning-status').textContent = 'WAITING FOR HANDS...';
+
+    let readyFrames = 0;
+    const REQUIRED_FRAMES = 20;
+
+    positioningInterval = setInterval(() => {
+      if (GameState.get() !== 'POSITIONING') {
+        clearInterval(positioningInterval);
+        return;
+      }
+      if (HandTracker.areHandsRaised()) {
+        readyFrames++;
+        const pct = Math.round((readyFrames / REQUIRED_FRAMES) * 100);
+        document.getElementById('positioning-status').textContent = `HANDS DETECTED (${pct}%)`;
+        document.getElementById('positioning-status').classList.add('ready');
+        if (readyFrames >= REQUIRED_FRAMES) {
+          clearInterval(positioningInterval);
+          GameState.transition('COUNTDOWN');
+        }
+      } else {
+        readyFrames = Math.max(0, readyFrames - 2);
+        if (readyFrames === 0) {
+          document.getElementById('positioning-status').textContent = 'RAISE BOTH HANDS...';
+          document.getElementById('positioning-status').classList.remove('ready');
+        }
+      }
+    }, 50);
+  },
+  exit() {
+    clearInterval(positioningInterval);
+  },
+};
+
+// -- COUNTDOWN --
+screens.COUNTDOWN = {
+  enter() {
+    const display = document.getElementById('countdown-display');
+    let count = 3;
+    display.textContent = count;
+    display.className = 'show';
+    AudioEngine.countdownTick();
+
+    const interval = setInterval(() => {
+      count--;
+      if (count > 0) {
+        display.className = '';
+        setTimeout(() => {
+          display.textContent = count;
+          display.className = 'show';
+          AudioEngine.countdownTick();
+        }, 100);
+      } else if (count === 0) {
+        display.className = '';
+        setTimeout(() => {
+          display.textContent = 'GO!';
+          display.className = 'show go';
+          AudioEngine.countdownGo();
+        }, 100);
+      } else {
+        clearInterval(interval);
+        display.className = '';
+        GameState.transition('PLAYING');
+      }
+    }, 1000);
+  },
+};
+
+// -- PLAYING --
+let gameLoopId = null;
+let spawnTimerId = null;
+let hitEffects = [];
+let pointsTexts = [];
+
+screens.PLAYING = {
+  enter() {
+    const settings = Storage.loadSettings();
+    const diff = DIFFICULTY[settings.difficulty];
+
+    TargetSystem.init(settings);
+    ScoringEngine.init();
+    hitEffects = [];
+    pointsTexts = [];
+
+    const hud = document.getElementById('hud');
+    hud.classList.add('visible');
+    updateHUD();
+
+    // Spawn first target
+    TargetSystem.spawn();
+
+    // Spawn timer
+    function scheduleNext() {
+      const delay = diff.spawnDelay * (0.85 + Math.random() * 0.3);
+      spawnTimerId = setTimeout(() => {
+        if (GameState.get() !== 'PLAYING') return;
+
+        // Check if current target timed out
+        const active = TargetSystem.getActive();
+        if (active) {
+          const elapsed = performance.now() - active.spawnTime;
+          if (elapsed > active.missTimeout) {
+            ScoringEngine.processMiss();
+            AudioEngine.miss();
+            pointsTexts.push({ x: active.x, y: active.y, text: 'MISS', color: 'bad', time: performance.now() });
+            TargetSystem.clearActive();
+          }
+        }
+
+        if (!TargetSystem.getActive() && TargetSystem.getSpawned() < TargetSystem.getTotalTargets()) {
+          TargetSystem.spawn();
+        }
+
+        if (TargetSystem.isFinished()) {
+          endGame();
+          return;
+        }
+        scheduleNext();
+      }, delay);
+    }
+    scheduleNext();
+
+    // Game render loop
+    function renderLoop() {
+      if (GameState.get() !== 'PLAYING') return;
+
+      Renderer.clear();
+      Renderer.drawWebcam();
+
+      // Draw target
+      const target = TargetSystem.getActive();
+      if (target) {
+        Renderer.drawTarget(target);
+      }
+
+      // Hit effects
+      const now = performance.now();
+      hitEffects = hitEffects.filter(e => now - e.time < 300);
+      hitEffects.forEach(e => {
+        Renderer.drawHitEffect(e.x, e.y, e.color);
+      });
+
+      // Points text
+      pointsTexts = pointsTexts.filter(p => now - p.time < 800);
+      pointsTexts.forEach(p => {
+        Renderer.drawPointsText(p.x, p.y - (now - p.time) * 0.0001, p.text, p.color);
+      });
+
+      // Hand cursors
+      const settings = Storage.loadSettings();
+      if (settings.showCursors) {
+        const tips = HandTracker.getFingerTips();
+        tips.forEach(t => {
+          Renderer.drawCursor(t.handedness, t.x, t.y);
+        });
+      }
+
+      // Hit detection
+      if (target) {
+        const tips = HandTracker.getFingerTips();
+        for (const tip of tips) {
+          const { width, height } = Renderer.getSize();
+          const dx = (tip.x - target.x) * width;
+          const dy = (tip.y - target.y) * height;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < target.radius + HIT_GRACE) {
+            // Check correct hand
+            if (target.hand === tip.handedness) {
+              // Correct hand hit!
+              const reactionMs = performance.now() - target.spawnTime;
+              const result = ScoringEngine.processHit(target, reactionMs);
+              TargetSystem.addHit();
+              AudioEngine.hit();
+              hitEffects.push({ x: target.x, y: target.y, color: tip.handedness === 'Left' ? 'cyan' : 'orange', time: now });
+              pointsTexts.push({ x: target.x, y: target.y, text: `+${result.points}`, color: 'good', time: now });
+              TargetSystem.clearActive();
+            } else {
+              // Wrong hand
+              const result = ScoringEngine.processWrongHand(target);
+              AudioEngine.wrongHand();
+              pointsTexts.push({ x: target.x, y: target.y, text: `${result.penalty}`, color: 'bad', time: now });
+              TargetSystem.clearActive();
+            }
+            updateHUD();
+
+            // Check finish
+            if (TargetSystem.isFinished()) {
+              endGame();
+              return;
+            }
+            break;
+          }
+        }
+      }
+
+      gameLoopId = requestAnimationFrame(renderLoop);
+    }
+    renderLoop();
+  },
+
+  exit() {
+    cancelAnimationFrame(gameLoopId);
+    clearTimeout(spawnTimerId);
+    document.getElementById('hud').classList.remove('visible');
+  },
+};
+
+function updateHUD() {
+  document.getElementById('hud-score').textContent = ScoringEngine.getScore().toLocaleString();
+  const mult = ScoringEngine.getMultiplierValue();
+  document.getElementById('hud-combo').textContent = `x${mult.toFixed(1)}`;
+  document.getElementById('hud-hits').textContent = `${TargetSystem.getHits()} / ${TargetSystem.getTotalTargets()}`;
+}
+
+function endGame() {
+  clearTimeout(spawnTimerId);
+  AudioEngine.complete();
+  setTimeout(() => {
+    GameState.transition('COMPLETE');
+  }, 500);
+}
+
+// -- COMPLETE --
+let lastSavedId = null;
+
+screens.COMPLETE = {
+  enter() {
+    const stats = ScoringEngine.getStats();
+    const settings = Storage.loadSettings();
+    const accuracy = TargetSystem.getTotalTargets() > 0
+      ? Math.round((TargetSystem.getHits() / TargetSystem.getTotalTargets()) * 100)
+      : 0;
+
+    document.getElementById('final-score').textContent = stats.score.toLocaleString();
+    document.getElementById('stat-accuracy').textContent = accuracy + '%';
+    document.getElementById('stat-reaction').textContent = stats.avgReaction + 'ms';
+    document.getElementById('stat-combo').textContent = 'x' + (stats.maxCombo >= 9 ? '2.5' : stats.maxCombo >= 6 ? '2.0' : stats.maxCombo >= 3 ? '1.5' : '1.0');
+    document.getElementById('stat-wrong').textContent = stats.wrongHands;
+
+    lastSavedId = null;
+    document.getElementById('btn-save-score').style.display = '';
+
+    // Store data for save
+    screens.COMPLETE._data = { stats, accuracy, settings };
+  },
+};
+
+// -- BACKGROUND RENDER LOOP (for camera preview on positioning screen) --
+function backgroundRenderLoop() {
+  const state = GameState.get();
+  if (state === 'POSITIONING' || state === 'COUNTDOWN') {
+    Renderer.clear();
+    Renderer.drawWebcam();
+
+    const settings = Storage.loadSettings();
+    if (settings.showCursors) {
+      const tips = HandTracker.getFingerTips();
+      tips.forEach(t => {
+        Renderer.drawCursor(t.handedness, t.x, t.y);
+      });
+    }
+  } else if (state !== 'PLAYING') {
+    Renderer.clear();
+  }
+  requestAnimationFrame(backgroundRenderLoop);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 10: BUTTON WIRING & BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════
+
+function wireButtons() {
+  // Home
+  document.getElementById('btn-play').addEventListener('click', () => {
+    AudioEngine.ensure();
+    GameState.transition('POSITIONING');
+  });
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    GameState.transition('SETTINGS');
+  });
+  document.getElementById('btn-scoreboard').addEventListener('click', () => {
+    GameState.transition('SCOREBOARD');
+  });
+
+  // Settings
+  document.getElementById('btn-settings-back').addEventListener('click', () => {
+    GameState.transition('HOME');
+  });
+  document.getElementById('setting-targets').addEventListener('input', (e) => {
+    document.getElementById('setting-targets-val').textContent = e.target.value;
+  });
+  document.getElementById('setting-volume').addEventListener('input', (e) => {
+    document.getElementById('setting-volume-val').textContent = e.target.value + '%';
+  });
+
+  // Scoreboard
+  document.getElementById('btn-scoreboard-back').addEventListener('click', () => {
+    GameState.transition('HOME');
+  });
+  document.getElementById('btn-scoreboard-clear').addEventListener('click', () => {
+    if (confirm('Clear all scores?')) {
+      Storage.clearScores();
+      renderScoreboard();
+    }
+  });
+
+  // Positioning
+  document.getElementById('btn-positioning-back').addEventListener('click', () => {
+    HandTracker.stopCamera();
+    GameState.transition('HOME');
+  });
+
+  // Complete
+  document.getElementById('btn-save-score').addEventListener('click', () => {
+    const data = screens.COMPLETE._data;
+    if (!data) return;
+    const name = document.getElementById('player-name').value.trim() || 'PLAYER';
+    const scores = Storage.saveScore({
+      name,
+      score: data.stats.score,
+      accuracy: data.accuracy,
+      difficulty: DIFFICULTY[data.settings.difficulty].label,
+      maxCombo: data.stats.maxCombo,
+      avgReaction: data.stats.avgReaction,
+    });
+    lastSavedId = scores.find(s => s.name === name && s.score === data.stats.score)?.id;
+    document.getElementById('btn-save-score').style.display = 'none';
+  });
+
+  document.getElementById('btn-play-again').addEventListener('click', () => {
+    GameState.forceSet('HOME');
+    GameState.transition('POSITIONING');
+  });
+
+  document.getElementById('btn-complete-home').addEventListener('click', () => {
+    HandTracker.stopCamera();
+    GameState.forceSet('HOME');
+    activateScreen('HOME');
+    if (screens.HOME.enter) screens.HOME.enter();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 11: BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════
+
+async function bootstrap() {
+  // Apply saved settings
+  const settings = Storage.loadSettings();
+  AudioEngine.setVolume(settings.volume / 100);
+  document.getElementById('crt-overlay').style.display = settings.crtEffect ? 'block' : 'none';
+
+  wireButtons();
+  backgroundRenderLoop();
+
+  // Pre-load MediaPipe (don't block UI)
+  try {
+    await HandTracker.init();
+    console.log('MediaPipe Hands loaded');
+  } catch (e) {
+    console.error('Failed to load MediaPipe:', e);
+  }
+}
+
+bootstrap();
+
+</script>
+</body>
+</html>
