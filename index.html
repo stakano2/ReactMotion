@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ReactForge - Reaction Trainer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,6 +44,11 @@ html, body {
   background: var(--bg-dark);
   color: var(--text-primary);
   font-family: var(--font-mono);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -711,11 +716,13 @@ const SCORING = {
   comboMultipliers: [1.0, 1.5, 2.0, 2.5],
 };
 
-const TARGET_RADIUS = 45;
-const HIT_GRACE = 15;
-const TARGET_MIN_RADIUS = 28;
 const FINGER_TIP_INDEX = 8;
 const HAND_RAISE_Y = 0.4;
+
+// These are set after isMobile is determined (see Section 6)
+let TARGET_RADIUS = 45;
+let HIT_GRACE = 15;
+let TARGET_MIN_RADIUS = 28;
 
 const STATES = ['HOME', 'SETTINGS', 'SCOREBOARD', 'POSITIONING', 'COUNTDOWN', 'PLAYING', 'COMPLETE'];
 
@@ -1073,6 +1080,16 @@ const Renderer = (() => {
 // SECTION 6: HAND TRACKER
 // ═══════════════════════════════════════════════════════════════
 
+const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+
+// On mobile, use larger targets and hit grace for fingertip tracking on small screens
+if (isMobile) {
+  TARGET_RADIUS = 55;
+  HIT_GRACE = 25;
+  TARGET_MIN_RADIUS = 38;
+}
+
 const HandTracker = (() => {
   let hands = null;
   let camera = null;
@@ -1091,9 +1108,9 @@ const HandTracker = (() => {
     });
     hands.setOptions({
       maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.4,
+      modelComplexity: isMobile ? 0 : 1,
+      minDetectionConfidence: isMobile ? 0.55 : 0.5,
+      minTrackingConfidence: isMobile ? 0.45 : 0.4,
     });
     hands.onResults((r) => {
       latestResults = r;
@@ -1103,20 +1120,22 @@ const HandTracker = (() => {
     const offscreen = new OffscreenCanvas(1, 1);
     try { await hands.send({ image: offscreen }); } catch (_) {}
     initDone = true;
-    console.log('MediaPipe Hands ready');
+    console.log('MediaPipe Hands ready' + (isMobile ? ' (mobile mode)' : ''));
   }
 
   async function startCamera() {
     if (cameraRunning) return;
     const video = document.getElementById('webcam-video');
+    const camWidth = isMobile ? 640 : 1920;
+    const camHeight = isMobile ? 480 : 1080;
     camera = new window.Camera(video, {
       onFrame: async () => {
         if (hands) {
           await hands.send({ image: video });
         }
       },
-      width: 1920,
-      height: 1080,
+      width: camWidth,
+      height: camHeight,
     });
     await camera.start();
     Renderer.setVideoReady(true);
@@ -1854,6 +1873,20 @@ async function bootstrap() {
 
   wireButtons();
   backgroundRenderLoop();
+
+  // Prevent pull-to-refresh and bounce scrolling on mobile
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+  // Request wake lock on mobile to prevent screen sleep during gameplay
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try { await navigator.wakeLock.request('screen'); } catch (_) {}
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && GameState.get() === 'PLAYING') requestWakeLock();
+  });
+  GameState.on((to) => { if (to === 'PLAYING') requestWakeLock(); });
 
   // Pre-load MediaPipe hand tracking model
   try {
