@@ -621,7 +621,7 @@ input[type="text"]:focus {
   <div class="section-title">GET READY</div>
   <div class="positioning-hint">
     Step back so your hands are visible.<br>
-    Raise both hands to begin.
+    Raise a hand to begin.
   </div>
   <div class="positioning-status" id="positioning-status">WAITING FOR HANDS...</div>
   <div class="btn-group">
@@ -1073,49 +1073,62 @@ const Renderer = (() => {
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracker = (() => {
-  let hands = null;
-  let results = null;
+  let handLandmarker = null;
+  let latestResults = null;
   let cameraRunning = false;
   let onFrame = null;
+  let lastDetectTime = 0;
 
   async function init() {
-    const { Hands } = await import(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js'
+    const vision = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'
+    );
+    const { HandLandmarker, FilesetResolver } = vision;
+
+    const fileset = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
     );
 
-    hands = new Hands({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
+    handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath:
+          'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 2,
+      minHandDetectionConfidence: 0.5,
+      minHandPresenceConfidence: 0.5,
+      minTrackingConfidence: 0.4,
     });
-
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.5,
-    });
-
-    hands.onResults((r) => {
-      results = r;
-      if (onFrame) onFrame(r);
-    });
+    console.log('HandLandmarker ready');
   }
 
   async function startCamera() {
     if (cameraRunning) return;
     const video = document.getElementById('webcam-video');
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720, facingMode: 'user' },
+      video: { width: 1920, height: 1080, facingMode: 'user' },
     });
     video.srcObject = stream;
     await video.play();
     Renderer.setVideoReady(true);
     cameraRunning = true;
 
-    async function tick() {
+    function tick() {
       if (!cameraRunning) return;
-      if (hands && video.readyState >= 2) {
-        await hands.send({ image: video });
+      if (handLandmarker && video.readyState >= 2) {
+        const now = performance.now();
+        // Throttle to avoid sending duplicate timestamps
+        if (now > lastDetectTime) {
+          try {
+            latestResults = handLandmarker.detectForVideo(video, now);
+          } catch (e) {
+            // skip frame on error
+          }
+          lastDetectTime = now;
+          if (onFrame) onFrame(latestResults);
+        }
       }
       requestAnimationFrame(tick);
     }
@@ -1132,22 +1145,24 @@ const HandTracker = (() => {
     Renderer.setVideoReady(false);
   }
 
-  function getResults() { return results; }
+  function getResults() { return latestResults; }
 
   function setOnFrame(fn) { onFrame = fn; }
 
   function getFingerTips() {
-    if (!results || !results.multiHandLandmarks) return [];
+    if (!latestResults || !latestResults.landmarks || latestResults.landmarks.length === 0) return [];
     const tips = [];
-    for (let i = 0; i < results.multiHandLandmarks.length; i++) {
-      const lm = results.multiHandLandmarks[i];
-      const classification = results.multiHandedness[i];
-      // MediaPipe reports handedness as if looking at a mirror, so flip it
-      const label = classification.label === 'Left' ? 'Right' : 'Left';
+    for (let i = 0; i < latestResults.landmarks.length; i++) {
+      const lm = latestResults.landmarks[i];
+      const handedness = latestResults.handednesses[i];
+      // handednesses is array of categories; first entry has categoryName
+      const rawLabel = handedness[0]?.categoryName || 'Right';
+      // MediaPipe reports handedness as mirrored, so flip
+      const label = rawLabel === 'Left' ? 'Right' : 'Left';
       const tip = lm[FINGER_TIP_INDEX];
       tips.push({
         handedness: label,
-        x: 1 - tip.x, // Mirror
+        x: 1 - tip.x, // Mirror for canvas
         y: tip.y,
         rawLandmarks: lm,
       });
@@ -1156,13 +1171,24 @@ const HandTracker = (() => {
   }
 
   function areHandsRaised() {
-    if (!results || !results.multiHandLandmarks) return false;
-    if (results.multiHandLandmarks.length < 2) return false;
-    return results.multiHandLandmarks.every(lm => {
+    if (!latestResults || !latestResults.landmarks) return false;
+    const numHands = latestResults.landmarks.length;
+    if (numHands === 0) return false;
+
+    // Require at least one hand where fingertips are above the wrist
+    // and the wrist is in the upper 60% of the frame
+    let raisedCount = 0;
+    for (const lm of latestResults.landmarks) {
       const wrist = lm[0];
-      const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
-      return tips.some(t => t.y < wrist.y - 0.05) && wrist.y < HAND_RAISE_Y;
-    });
+      const fingertips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
+      const tipsAboveWrist = fingertips.filter(t => t.y < wrist.y - 0.03).length;
+      // At least 3 fingertips above wrist and wrist in upper 60%
+      if (tipsAboveWrist >= 3 && wrist.y < 0.6) {
+        raisedCount++;
+      }
+    }
+    // Accept 1 raised hand (more forgiving) or 2
+    return raisedCount >= 1;
   }
 
   return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame };
@@ -1466,10 +1492,14 @@ screens.POSITIONING = {
         clearInterval(positioningInterval);
         return;
       }
-      if (HandTracker.areHandsRaised()) {
+      const r = HandTracker.getResults();
+      const numHands = r?.landmarks?.length || 0;
+      const raised = HandTracker.areHandsRaised();
+
+      if (raised) {
         readyFrames++;
         const pct = Math.round((readyFrames / REQUIRED_FRAMES) * 100);
-        document.getElementById('positioning-status').textContent = `HANDS DETECTED (${pct}%)`;
+        document.getElementById('positioning-status').textContent = `HAND RAISED! HOLD STEADY (${pct}%)`;
         document.getElementById('positioning-status').classList.add('ready');
         if (readyFrames >= REQUIRED_FRAMES) {
           clearInterval(positioningInterval);
@@ -1477,10 +1507,11 @@ screens.POSITIONING = {
         }
       } else {
         readyFrames = Math.max(0, readyFrames - 2);
-        if (readyFrames === 0) {
-          document.getElementById('positioning-status').textContent = 'RAISE BOTH HANDS...';
-          document.getElementById('positioning-status').classList.remove('ready');
-        }
+        const status = numHands > 0
+          ? `${numHands} HAND${numHands > 1 ? 'S' : ''} DETECTED — RAISE HIGHER...`
+          : 'NO HANDS DETECTED — RAISE A HAND...';
+        document.getElementById('positioning-status').textContent = status;
+        document.getElementById('positioning-status').classList.remove('ready');
       }
     }, 50);
   },
