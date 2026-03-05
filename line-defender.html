@@ -1776,6 +1776,13 @@ const NumberCallout = (() => {
   let feedbackAlpha = 0;
   let correctCount = 0;
   let incorrectCount = 0;
+  let countedForCurrent = false;
+  let previousNumber = null;
+  let prevNumberExpiry = 0;
+  let attemptedForCurrent = false;
+  let micStream = null;
+  let analyser = null;
+  let micLevel = 0;
 
   function randomNumber() {
     return 10 + Math.floor(Math.random() * 90); // 10-99
@@ -1796,10 +1803,12 @@ const NumberCallout = (() => {
     feedbackAlpha = 0;
     correctCount = 0;
     incorrectCount = 0;
+    countedForCurrent = false;
+    attemptedForCurrent = false;
     startRecognition();
   }
 
-  function startRecognition() {
+  async function startRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return; // graceful fallback
 
@@ -1824,22 +1833,70 @@ const NumberCallout = (() => {
     recognition.onerror = () => {};
 
     try { recognition.start(); } catch {}
+
+    // Mic volume meter
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+    } catch {}
+  }
+
+  function wordsToNumbers(text) {
+    const ones = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9 };
+    const teens = { ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15,
+                    sixteen:16, seventeen:17, eighteen:18, nineteen:19 };
+    const tens = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
+    const results = [];
+    const words = text.toLowerCase().replace(/-/g, ' ').split(/\s+/);
+    let i = 0;
+    while (i < words.length) {
+      const w = words[i];
+      if (teens[w] !== undefined) {
+        results.push(teens[w]);
+        i++;
+      } else if (tens[w] !== undefined) {
+        let val = tens[w];
+        if (i + 1 < words.length && ones[words[i + 1]] !== undefined) {
+          val += ones[words[i + 1]];
+          i += 2;
+        } else { i++; }
+        results.push(val);
+      } else { i++; }
+    }
+    return results;
   }
 
   function onSpeechResult(transcript, isFinal) {
-    const numbers = transcript.match(/\d+/g);
-    if (!numbers) return;
-    for (const numStr of numbers) {
-      const num = parseInt(numStr, 10);
-      if (num === currentNumber) {
+    const digitMatches = transcript.match(/\d+/g) || [];
+    const wordMatches = wordsToNumbers(transcript);
+    const allNumbers = digitMatches.map(s => parseInt(s, 10)).concat(wordMatches);
+    if (allNumbers.length === 0) return;
+
+    const now = performance.now();
+    const prevValid = previousNumber !== null && now < prevNumberExpiry;
+
+    for (const num of allNumbers) {
+      if (num === currentNumber || (prevValid && num === previousNumber)) {
         feedbackColor = 'green';
         feedbackAlpha = 1.0;
-        if (isFinal) correctCount++;
+        if (!countedForCurrent) {
+          correctCount++;
+          countedForCurrent = true;
+        }
         return;
-      } else if (num >= 10 && num <= 99) {
+      }
+    }
+
+    // Mark that player attempted but didn't match
+    if (allNumbers.some(n => n >= 10 && n <= 99)) {
+      attemptedForCurrent = true;
+      if (isFinal) {
         feedbackColor = 'red';
         feedbackAlpha = 1.0;
-        if (isFinal) incorrectCount++;
       }
     }
   }
@@ -1847,9 +1904,27 @@ const NumberCallout = (() => {
   function update(now) {
     if (!active) return;
     if (now - lastChangeTime > interval * 1000) {
+      // Score the previous number period
+      if (!countedForCurrent) {
+        incorrectCount++;
+      }
+      previousNumber = currentNumber;
+      prevNumberExpiry = now + 750; // 0.75s grace period
       currentNumber = randomNumber();
       randomPosition();
       lastChangeTime = now;
+      countedForCurrent = false;
+      attemptedForCurrent = false;
+    }
+    if (analyser) {
+      const data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      micLevel = Math.sqrt(sum / data.length);
     }
     if (feedbackAlpha > 0) {
       feedbackAlpha -= (1 / 0.3) * (1 / 60); // fade over ~0.3s at 60fps
@@ -1887,6 +1962,39 @@ const NumberCallout = (() => {
     ctx.fillText(currentNumber, x, y);
     ctx.shadowBlur = 0;
     ctx.restore();
+
+    // Live correct/wrong counters (above mic meter)
+    ctx.save();
+    ctx.font = '18px "Bebas Neue"';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    const counterY = h - 110;
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText('\u2713 ' + correctCount, w - 45, counterY);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillText('\u2717 ' + incorrectCount, w - 45, counterY + 20);
+    ctx.restore();
+
+    // Mic volume meter (bottom-right corner)
+    ctx.save();
+    const meterX = w - 40;
+    const meterY = h - 20;
+    const meterW = 20;
+    const meterH = 80;
+    const level = Math.min(micLevel * 5, 1.0); // amplify for visibility
+    const barH = level * meterH;
+    // Background
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(meterX, meterY - meterH, meterW, meterH);
+    // Bar
+    ctx.fillStyle = level > 0.05 ? 'rgba(0,255,136,0.8)' : 'rgba(100,100,100,0.5)';
+    ctx.fillRect(meterX, meterY - barH, meterW, barH);
+    // Label
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.textAlign = 'center';
+    ctx.fillText('MIC', meterX + meterW / 2, meterY + 12);
+    ctx.restore();
   }
 
   function stop() {
@@ -1897,6 +2005,12 @@ const NumberCallout = (() => {
     }
     feedbackColor = null;
     feedbackAlpha = 0;
+    if (micStream) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+    }
+    analyser = null;
+    micLevel = 0;
   }
 
   function getStats() { return { correct: correctCount, incorrect: incorrectCount }; }
@@ -2281,7 +2395,7 @@ screens.GAME_OVER = {
     const calloutStats = NumberCallout.getStats();
     const settings = Storage.getCachedSettings();
     const calloutRow = document.getElementById('callout-stats-row');
-    if (settings.difficulty === 'very_hard') {
+    if (calloutStats.correct > 0 || calloutStats.incorrect > 0) {
       document.getElementById('stat-callout-correct').textContent = calloutStats.correct;
       document.getElementById('stat-callout-wrong').textContent = calloutStats.incorrect;
       calloutRow.style.display = '';
