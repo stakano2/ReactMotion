@@ -810,6 +810,16 @@ input[type="text"]:focus {
       <div class="stat-value" id="stat-time">0s</div>
     </div>
   </div>
+  <div class="stats-grid" id="callout-stats-row" style="max-width: 400px; width: 90%; display: none;">
+    <div class="stat-box">
+      <div class="stat-label">Numbers Correct</div>
+      <div class="stat-value" id="stat-callout-correct" style="color: #00ff88;">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Numbers Wrong</div>
+      <div class="stat-value" id="stat-callout-wrong" style="color: #ff2244;">0</div>
+    </div>
+  </div>
   <div style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem;">
     <span style="color: var(--text-dim); font-size: 0.8rem;">NAME:</span>
     <input type="text" id="player-name" maxlength="12" placeholder="PLAYER" value="PLAYER">
@@ -1764,6 +1774,8 @@ const NumberCallout = (() => {
   let recognition = null;
   let feedbackColor = null; // 'green' or 'red'
   let feedbackAlpha = 0;
+  let correctCount = 0;
+  let incorrectCount = 0;
 
   function randomNumber() {
     return 10 + Math.floor(Math.random() * 90); // 10-99
@@ -1782,6 +1794,8 @@ const NumberCallout = (() => {
     active = true;
     feedbackColor = null;
     feedbackAlpha = 0;
+    correctCount = 0;
+    incorrectCount = 0;
     startRecognition();
   }
 
@@ -1820,10 +1834,12 @@ const NumberCallout = (() => {
       if (num === currentNumber) {
         feedbackColor = 'green';
         feedbackAlpha = 1.0;
+        correctCount++;
         return;
       } else if (num >= 10 && num <= 99) {
         feedbackColor = 'red';
         feedbackAlpha = 1.0;
+        incorrectCount++;
       }
     }
   }
@@ -1883,7 +1899,9 @@ const NumberCallout = (() => {
     feedbackAlpha = 0;
   }
 
-  return { init, update, draw, stop };
+  function getStats() { return { correct: correctCount, incorrect: incorrectCount }; }
+
+  return { init, update, draw, stop, getStats };
 })();
 
 
@@ -2259,6 +2277,17 @@ screens.GAME_OVER = {
     document.getElementById('stat-blue-hits').textContent = blueHits;
     document.getElementById('stat-red-penalties').textContent = redPenalties;
     document.getElementById('stat-time').textContent = elapsed + 's';
+
+    const calloutStats = NumberCallout.getStats();
+    const settings = Storage.getCachedSettings();
+    const calloutRow = document.getElementById('callout-stats-row');
+    if (settings.difficulty === 'very_hard') {
+      document.getElementById('stat-callout-correct').textContent = calloutStats.correct;
+      document.getElementById('stat-callout-wrong').textContent = calloutStats.incorrect;
+      calloutRow.style.display = '';
+    } else {
+      calloutRow.style.display = 'none';
+    }
 
     lastSavedId = null;
     document.getElementById('btn-save-score').style.display = '';
