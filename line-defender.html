@@ -713,6 +713,18 @@ input[type="text"]:focus {
         <option value="small" selected>Small (Hard)</option>
       </select>
     </div>
+    <div class="setting-row">
+      <span class="setting-label">Difficulty</span>
+      <select id="setting-difficulty">
+        <option value="normal" selected>Normal</option>
+        <option value="very_hard">Very Hard</option>
+      </select>
+    </div>
+    <div class="setting-row" id="number-interval-row" style="display:none">
+      <span class="setting-label">Number Interval</span>
+      <input type="range" id="setting-number-interval" min="0.1" max="20" step="0.1" value="2.0">
+      <span class="setting-value" id="setting-number-interval-val">2.0s</span>
+    </div>
   </div>
   <div class="btn-group">
     <button class="btn btn-small" id="btn-settings-back">BACK</button>
@@ -1015,6 +1027,8 @@ const Storage = (() => {
     showCursors: true,
     crtEffect: true,
     targetSize: 'small',
+    difficulty: 'normal',
+    numberInterval: 2.0,
   };
 
   function loadSettings() {
@@ -1738,6 +1752,142 @@ const LDScoring = (() => {
 
 
 // ═══════════════════════════════════════════════════════════════
+// SECTION 10B: NUMBER CALLOUT (Very Hard mode)
+// ═══════════════════════════════════════════════════════════════
+
+const NumberCallout = (() => {
+  let active = false;
+  let currentNumber = 0;
+  let posX = 0.5, posY = 0.5;
+  let lastChangeTime = 0;
+  let interval = 2.0;
+  let recognition = null;
+  let feedbackColor = null; // 'green' or 'red'
+  let feedbackAlpha = 0;
+
+  function randomNumber() {
+    return 10 + Math.floor(Math.random() * 90); // 10-99
+  }
+
+  function randomPosition() {
+    posX = 0.15 + Math.random() * 0.70; // 0.15 - 0.85
+    posY = 0.15 + Math.random() * 0.55; // 0.15 - 0.70
+  }
+
+  function init(intv) {
+    interval = intv || 2.0;
+    currentNumber = randomNumber();
+    randomPosition();
+    lastChangeTime = performance.now();
+    active = true;
+    feedbackColor = null;
+    feedbackAlpha = 0;
+    startRecognition();
+  }
+
+  function startRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return; // graceful fallback
+
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        onSpeechResult(transcript);
+      }
+    };
+
+    recognition.onend = () => {
+      if (active) {
+        try { recognition.start(); } catch {}
+      }
+    };
+
+    recognition.onerror = () => {};
+
+    try { recognition.start(); } catch {}
+  }
+
+  function onSpeechResult(transcript) {
+    const numbers = transcript.match(/\d+/g);
+    if (!numbers) return;
+    for (const numStr of numbers) {
+      const num = parseInt(numStr, 10);
+      if (num === currentNumber) {
+        feedbackColor = 'green';
+        feedbackAlpha = 1.0;
+        return;
+      } else if (num >= 10 && num <= 99) {
+        feedbackColor = 'red';
+        feedbackAlpha = 1.0;
+      }
+    }
+  }
+
+  function update(now) {
+    if (!active) return;
+    if (now - lastChangeTime > interval * 1000) {
+      currentNumber = randomNumber();
+      randomPosition();
+      lastChangeTime = now;
+    }
+    if (feedbackAlpha > 0) {
+      feedbackAlpha -= (1 / 0.3) * (1 / 60); // fade over ~0.3s at 60fps
+      if (feedbackAlpha < 0) feedbackAlpha = 0;
+    }
+  }
+
+  function draw(ctx, w, h) {
+    if (!active) return;
+
+    const x = posX * w;
+    const y = posY * h;
+
+    // Draw feedback flash overlay
+    if (feedbackAlpha > 0 && feedbackColor) {
+      ctx.save();
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, Math.max(w, h) * 0.4);
+      const color = feedbackColor === 'green' ? '0, 255, 136' : '255, 34, 68';
+      gradient.addColorStop(0, `rgba(${color}, ${feedbackAlpha * 0.4})`);
+      gradient.addColorStop(1, `rgba(${color}, 0)`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    // Draw number
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.font = '110px "Bebas Neue"';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#00f5ff';
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(currentNumber, x, y);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  function stop() {
+    active = false;
+    if (recognition) {
+      try { recognition.stop(); } catch {}
+      recognition = null;
+    }
+    feedbackColor = null;
+    feedbackAlpha = 0;
+  }
+
+  return { init, update, draw, stop };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
 // SECTION 11: SCREEN CONTROLLERS
 // ═══════════════════════════════════════════════════════════════
 
@@ -1771,6 +1921,10 @@ screens.SETTINGS = {
     document.getElementById('setting-cursors').value = s.showCursors ? 'on' : 'off';
     document.getElementById('setting-crt').value = s.crtEffect ? 'on' : 'off';
     document.getElementById('setting-target-size').value = s.targetSize || 'small';
+    document.getElementById('setting-difficulty').value = s.difficulty || 'normal';
+    document.getElementById('setting-number-interval').value = s.numberInterval || 2.0;
+    document.getElementById('setting-number-interval-val').textContent = (s.numberInterval || 2.0) + 's';
+    document.getElementById('number-interval-row').style.display = s.difficulty === 'very_hard' ? '' : 'none';
   },
   exit() {
     const s = {
@@ -1778,6 +1932,8 @@ screens.SETTINGS = {
       showCursors: document.getElementById('setting-cursors').value === 'on',
       crtEffect: document.getElementById('setting-crt').value === 'on',
       targetSize: document.getElementById('setting-target-size').value,
+      difficulty: document.getElementById('setting-difficulty').value,
+      numberInterval: parseFloat(document.getElementById('setting-number-interval').value),
     };
     Storage.saveSettings(s);
     AudioEngine.setVolume(s.volume / 100);
@@ -1921,6 +2077,11 @@ screens.PLAYING = {
     edgePulse = { alpha: 0, color: 'red' };
     pointsTexts = [];
 
+    const playSettings = Storage.getCachedSettings();
+    if (playSettings.difficulty === 'very_hard') {
+      NumberCallout.init(playSettings.numberInterval);
+    }
+
     const hud = document.getElementById('hud');
     hud.classList.add('visible');
     updateHUD();
@@ -2009,6 +2170,11 @@ screens.PLAYING = {
         Renderer.drawParticle(p);
       }
 
+      // Number callout (Very Hard mode)
+      NumberCallout.update(now);
+      const _sz = Renderer.getSize();
+      NumberCallout.draw(Renderer.ctx, _sz.width, _sz.height);
+
       // Draw points text
       pointsTexts = pointsTexts.filter(p => now - p.time < 800);
       for (const p of pointsTexts) {
@@ -2070,6 +2236,7 @@ function updateHUD() {
 
 function endGame() {
   cancelAnimationFrame(gameLoopId);
+  NumberCallout.stop();
   AudioEngine.gameOver();
   setTimeout(() => {
     GameState.transition('GAME_OVER');
@@ -2144,6 +2311,12 @@ function wireButtons() {
   });
   document.getElementById('setting-volume').addEventListener('input', (e) => {
     document.getElementById('setting-volume-val').textContent = e.target.value + '%';
+  });
+  document.getElementById('setting-difficulty').addEventListener('change', (e) => {
+    document.getElementById('number-interval-row').style.display = e.target.value === 'very_hard' ? '' : 'none';
+  });
+  document.getElementById('setting-number-interval').addEventListener('input', (e) => {
+    document.getElementById('setting-number-interval-val').textContent = parseFloat(e.target.value).toFixed(1) + 's';
   });
 
   // Scoreboard
