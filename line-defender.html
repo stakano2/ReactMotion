@@ -1811,7 +1811,7 @@ const NumberCallout = (() => {
     recognition.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
-        onSpeechResult(transcript);
+        onSpeechResult(transcript, event.results[i].isFinal);
       }
     };
 
@@ -1826,7 +1826,7 @@ const NumberCallout = (() => {
     try { recognition.start(); } catch {}
   }
 
-  function onSpeechResult(transcript) {
+  function onSpeechResult(transcript, isFinal) {
     const numbers = transcript.match(/\d+/g);
     if (!numbers) return;
     for (const numStr of numbers) {
@@ -1834,12 +1834,12 @@ const NumberCallout = (() => {
       if (num === currentNumber) {
         feedbackColor = 'green';
         feedbackAlpha = 1.0;
-        correctCount++;
+        if (isFinal) correctCount++;
         return;
       } else if (num >= 10 && num <= 99) {
         feedbackColor = 'red';
         feedbackAlpha = 1.0;
-        incorrectCount++;
+        if (isFinal) incorrectCount++;
       }
     }
   }
