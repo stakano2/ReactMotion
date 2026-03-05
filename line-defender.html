@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════
    CSS RESET & CUSTOM PROPERTIES
@@ -816,9 +816,6 @@ input[type="text"]:focus {
 // SECTION 1: CONSTANTS & CONFIG
 // ═══════════════════════════════════════════════════════════════
 
-const FINGER_TIP_INDEX = 8;
-const HAND_RAISE_Y = 0.4;
-
 const STATES = ['HOME', 'SETTINGS', 'SCOREBOARD', 'POSITIONING', 'COUNTDOWN', 'PLAYING', 'GAME_OVER'];
 
 const VALID_TRANSITIONS = {
@@ -1027,7 +1024,15 @@ const Storage = (() => {
     } catch { return { ...defaults }; }
   }
 
+  let cachedSettings = null;
+
+  function getCachedSettings() {
+    if (!cachedSettings) cachedSettings = loadSettings();
+    return cachedSettings;
+  }
+
   function saveSettings(s) {
+    cachedSettings = null;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
 
@@ -1052,7 +1057,7 @@ const Storage = (() => {
     localStorage.removeItem(SCORES_KEY);
   }
 
-  return { loadSettings, saveSettings, loadScores, saveScore, clearScores };
+  return { loadSettings, getCachedSettings, saveSettings, loadScores, saveScore, clearScores };
 })();
 
 
@@ -1261,11 +1266,18 @@ const Renderer = (() => {
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracker = (() => {
-  let hands = null;
+  let pose = null;
   let latestResults = null;
   let cameraRunning = false;
   let onFrame = null;
   let initDone = false;
+
+  // Per-hand interpolation state
+  const VIS_THRESHOLD = 0.5;
+  const handState = {
+    Left:  { x: 0, y: 0, velX: 0, velY: 0, time: 0, visible: false },
+    Right: { x: 0, y: 0, velX: 0, velY: 0, time: 0, visible: false },
+  };
 
   function setStatus(msg) {
     const el = document.getElementById('positioning-status');
@@ -1274,32 +1286,67 @@ const HandTracker = (() => {
   }
 
   async function init() {
-    if (typeof window.Hands === 'undefined') {
-      throw new Error('MediaPipe Hands script not loaded — check network/CDN');
+    if (typeof window.Pose === 'undefined') {
+      throw new Error('MediaPipe Pose script not loaded — check network/CDN');
     }
-    setStatus('CREATING HAND MODEL...');
-    hands = new window.Hands({
+    setStatus('CREATING POSE MODEL...');
+    pose = new window.Pose({
       locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
+        `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`,
     });
-    hands.setOptions({
-      maxNumHands: 2,
+    pose.setOptions({
       modelComplexity: 0,
+      smoothLandmarks: true,
       minDetectionConfidence: 0.3,
       minTrackingConfidence: 0.3,
     });
-    hands.onResults((r) => {
+    pose.onResults((r) => {
       latestResults = r;
+      // Update interpolation state from pose landmarks
+      if (r.poseLandmarks) {
+        const lm = r.poseLandmarks;
+        const now = performance.now();
+        updateHandState('Left', lm[15], lm[17], lm[19], now);
+        updateHandState('Right', lm[16], lm[18], lm[20], now);
+      }
       if (onFrame) onFrame(r);
     });
     setStatus('WARMING UP MODEL...');
     try {
       const c = document.createElement('canvas');
       c.width = 2; c.height = 2;
-      await hands.send({ image: c });
+      await pose.send({ image: c });
     } catch (_) {}
     initDone = true;
-    setStatus('HAND MODEL READY');
+    setStatus('POSE MODEL READY');
+  }
+
+  function updateHandState(hand, wrist, pinky, index, now) {
+    const minVis = Math.min(wrist.visibility, pinky.visibility, index.visibility);
+    const st = handState[hand];
+    if (minVis < VIS_THRESHOLD) {
+      st.visible = false;
+      return;
+    }
+    const palmX = (wrist.x + pinky.x + index.x) / 3;
+    const palmY = (wrist.y + pinky.y + index.y) / 3;
+    // Flip X for selfie cam (Pose gives physical body-relative labels)
+    const flippedX = 1 - palmX;
+
+    if (st.visible && st.time > 0) {
+      const dt = now - st.time;
+      if (dt > 0 && dt < 200) {
+        st.velX = (flippedX - st.x) / dt;
+        st.velY = (palmY - st.y) / dt;
+      }
+    } else {
+      st.velX = 0;
+      st.velY = 0;
+    }
+    st.x = flippedX;
+    st.y = palmY;
+    st.time = now;
+    st.visible = true;
   }
 
   async function startCamera() {
@@ -1312,6 +1359,7 @@ const HandTracker = (() => {
         facingMode: 'user',
         width: { ideal: isMobile ? 640 : 960 },
         height: { ideal: isMobile ? 480 : 540 },
+        frameRate: { ideal: 30, max: 30 },
       },
       audio: false,
     };
@@ -1324,17 +1372,17 @@ const HandTracker = (() => {
 
     Renderer.setVideoReady(true);
     cameraRunning = true;
-    setStatus('CAMERA STARTED — DETECTING HANDS...');
+    setStatus('CAMERA STARTED — DETECTING POSE...');
 
     let processing = false;
     async function tick() {
       if (!cameraRunning) return;
-      if (hands && video.readyState >= 2 && !processing) {
+      if (pose && video.readyState >= 2 && !processing) {
         processing = true;
         try {
-          await hands.send({ image: video });
+          await pose.send({ image: video });
         } catch (e) {
-          console.warn('Hand detection frame error:', e);
+          console.warn('Pose detection frame error:', e);
         }
         processing = false;
       }
@@ -1358,44 +1406,38 @@ const HandTracker = (() => {
   function isReady() { return initDone; }
 
   function getFingerTips() {
-    if (!latestResults || !latestResults.multiHandLandmarks) return [];
     const tips = [];
-    for (let i = 0; i < latestResults.multiHandLandmarks.length; i++) {
-      const lm = latestResults.multiHandLandmarks[i];
-      const classification = latestResults.multiHandedness[i];
-      const rawLabel = classification.label || 'Right';
-      const label = rawLabel === 'Left' ? 'Right' : 'Left';
-      const tip = lm[FINGER_TIP_INDEX];
+    const now = performance.now();
+    for (const hand of ['Left', 'Right']) {
+      const st = handState[hand];
+      if (!st.visible) continue;
+      const elapsed = Math.min(now - st.time, 80);
+      const confidence = Math.max(0, 1 - elapsed / 100);
       tips.push({
-        handedness: label,
-        x: 1 - tip.x,
-        y: tip.y,
-        rawLandmarks: lm,
+        handedness: hand,
+        x: st.x + st.velX * elapsed * confidence,
+        y: st.y + st.velY * elapsed * confidence,
       });
     }
     return tips;
   }
 
   function areHandsRaised() {
-    if (!latestResults || !latestResults.multiHandLandmarks) return false;
-    const numHands = latestResults.multiHandLandmarks.length;
-    if (numHands === 0) return false;
-
+    if (!latestResults || !latestResults.poseLandmarks) return false;
+    const lm = latestResults.poseLandmarks;
     let raisedCount = 0;
-    for (const lm of latestResults.multiHandLandmarks) {
-      const wrist = lm[0];
-      const fingertips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
-      const tipsAboveWrist = fingertips.filter(t => t.y < wrist.y - 0.03).length;
-      if (tipsAboveWrist >= 3 && wrist.y < 0.7) {
-        raisedCount++;
-      }
+    // Left: wrist 15 above shoulder 11
+    if (lm[15].visibility > VIS_THRESHOLD && lm[11].visibility > VIS_THRESHOLD && lm[15].y < lm[11].y) {
+      raisedCount++;
+    }
+    // Right: wrist 16 above shoulder 12
+    if (lm[16].visibility > VIS_THRESHOLD && lm[12].visibility > VIS_THRESHOLD && lm[16].y < lm[12].y) {
+      raisedCount++;
     }
     return raisedCount >= 1;
   }
 
-  function setMaxHands(n) {
-    if (hands) hands.setOptions({ maxNumHands: n });
-  }
+  function setMaxHands() { /* no-op: Pose always tracks full body */ }
 
   return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady, setMaxHands };
 })();
@@ -1803,8 +1845,7 @@ screens.POSITIONING = {
         clearInterval(positioningInterval);
         return;
       }
-      const r = HandTracker.getResults();
-      const numHands = r?.multiHandLandmarks?.length || 0;
+      const numHands = HandTracker.getFingerTips().length;
       const raised = HandTracker.areHandsRaised();
 
       if (raised) {
@@ -1993,8 +2034,8 @@ screens.PLAYING = {
       }
 
       // Hand cursors
-      const settings = Storage.loadSettings();
-      if (settings.showCursors) {
+      const cursorSettings = Storage.getCachedSettings();
+      if (cursorSettings.showCursors) {
         for (const t of tips) {
           Renderer.drawCursor(t.handedness, t.x, t.y);
         }
@@ -2066,8 +2107,8 @@ function backgroundRenderLoop() {
     Renderer.clear();
     Renderer.drawWebcam();
 
-    const settings = Storage.loadSettings();
-    if (settings.showCursors) {
+    const bgSettings = Storage.getCachedSettings();
+    if (bgSettings.showCursors) {
       const tips = HandTracker.getFingerTips();
       tips.forEach(t => {
         Renderer.drawCursor(t.handedness, t.x, t.y);
