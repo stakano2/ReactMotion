@@ -1218,6 +1218,53 @@ const HandTracker = (() => {
     Right: { x: 0, y: 0, velX: 0, velY: 0, time: 0, visible: false },
   };
 
+  // Player locking: reject skeletons that don't match the active player
+  let playerProfile = null;
+  const DRIFT_RATE = 0.02;
+
+  function captureProfile() {
+    if (!latestResults || !latestResults.poseLandmarks) return false;
+    const lm = latestResults.poseLandmarks;
+    const lSh = lm[11], rSh = lm[12];
+    if (lSh.visibility < VIS_THRESHOLD || rSh.visibility < VIS_THRESHOLD) return false;
+    playerProfile = {
+      width: Math.abs(lSh.x - rSh.x),
+      centerX: (lSh.x + rSh.x) / 2,
+      centerY: (lSh.y + rSh.y) / 2,
+    };
+    return true;
+  }
+
+  function clearProfile() {
+    playerProfile = null;
+  }
+
+  function isPlayerMatch(landmarks) {
+    if (!playerProfile) return true;
+    const lSh = landmarks[11], rSh = landmarks[12];
+    if (lSh.visibility < VIS_THRESHOLD || rSh.visibility < VIS_THRESHOLD) return false;
+    const w = Math.abs(lSh.x - rSh.x);
+    const ratio = w / playerProfile.width;
+    if (ratio < 0.65 || ratio > 1.5) return false;
+    const cx = (lSh.x + rSh.x) / 2;
+    const cy = (lSh.y + rSh.y) / 2;
+    if (Math.abs(cx - playerProfile.centerX) > 0.25) return false;
+    if (Math.abs(cy - playerProfile.centerY) > 0.20) return false;
+    return true;
+  }
+
+  function driftProfile(landmarks) {
+    if (!playerProfile) return;
+    const lSh = landmarks[11], rSh = landmarks[12];
+    if (lSh.visibility < VIS_THRESHOLD || rSh.visibility < VIS_THRESHOLD) return;
+    const w = Math.abs(lSh.x - rSh.x);
+    const cx = (lSh.x + rSh.x) / 2;
+    const cy = (lSh.y + rSh.y) / 2;
+    playerProfile.width += (w - playerProfile.width) * DRIFT_RATE;
+    playerProfile.centerX += (cx - playerProfile.centerX) * DRIFT_RATE;
+    playerProfile.centerY += (cy - playerProfile.centerY) * DRIFT_RATE;
+  }
+
   function setStatus(msg) {
     const el = document.getElementById('positioning-status');
     if (el) el.textContent = msg;
@@ -1244,9 +1291,12 @@ const HandTracker = (() => {
       // Update interpolation state from pose landmarks
       if (r.poseLandmarks) {
         const lm = r.poseLandmarks;
-        const now = performance.now();
-        updateHandState('Left', lm[15], lm[17], lm[19], now);
-        updateHandState('Right', lm[16], lm[18], lm[20], now);
+        if (isPlayerMatch(lm)) {
+          const now = performance.now();
+          updateHandState('Left', lm[15], lm[17], lm[19], now);
+          updateHandState('Right', lm[16], lm[18], lm[20], now);
+          driftProfile(lm);
+        }
       }
       if (onFrame) onFrame(r);
     });
@@ -1378,7 +1428,7 @@ const HandTracker = (() => {
 
   function setMaxHands() { /* no-op: Pose always tracks full body */ }
 
-  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady, setMaxHands };
+  return { init, startCamera, stopCamera, getResults, getFingerTips, areHandsRaised, setOnFrame, isReady, setMaxHands, captureProfile, clearProfile };
 })();
 
 
@@ -1673,6 +1723,7 @@ let positioningInterval = null;
 
 screens.POSITIONING = {
   async enter() {
+    HandTracker.clearProfile();
     document.getElementById('positioning-status').textContent = 'STARTING CAMERA...';
     document.getElementById('positioning-status').classList.remove('ready');
 
@@ -1713,6 +1764,7 @@ screens.POSITIONING = {
         document.getElementById('positioning-status').classList.add('ready');
         if (readyFrames >= REQUIRED_FRAMES) {
           clearInterval(positioningInterval);
+          HandTracker.captureProfile();
           GameState.transition('COUNTDOWN');
         }
       } else {
